@@ -13,18 +13,42 @@ info() { printf '\033[1;36m •\033[0m %s\n' "$*"; }
 
 echo "=== Sofia GPU check ==="
 
+# Module checks read /sys/module directly: `lsmod | grep -q` reports a false
+# failure under pipefail (grep exits on first match, lsmod dies with SIGPIPE).
+
 # 1) nouveau should be gone
-if lsmod | grep -q '^nouveau'; then
+if [ -d /sys/module/nouveau ]; then
   bad "nouveau is STILL loaded — the switch didn't take. Re-check setup-gpu.sh / reboot."
 else
   ok "nouveau not loaded"
 fi
 
 # 2) nvidia module loaded
-if lsmod | grep -q '^nvidia'; then
+if [ -d /sys/module/nvidia ]; then
   ok "nvidia kernel module loaded"
 else
   bad "nvidia module NOT loaded"
+fi
+
+# 2b) KMS enabled (GNOME/Wayland needs it — this laptop is dGPU-only).
+# The modeset parameter is root-only, so without sudo fall back to checking
+# that the NVIDIA card exposes display connectors (it only does with KMS on).
+kms_on() {
+  local modeset card
+  if modeset=$(cat /sys/module/nvidia_drm/parameters/modeset 2>/dev/null); then
+    [ "$modeset" = "Y" ]
+    return
+  fi
+  for card in /sys/class/drm/card[0-9]*-*; do
+    [ -e "$card" ] || continue
+    [ "$(basename "$(readlink -f "${card%%-*}/device/driver")")" = "nvidia" ] && return 0
+  done
+  return 1
+}
+if kms_on; then
+  ok "nvidia-drm modeset enabled"
+else
+  bad "nvidia-drm modeset is OFF — Wayland desktop won't start on this driver"
 fi
 
 # 3) nvidia-smi works

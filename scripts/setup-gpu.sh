@@ -55,6 +55,18 @@ options nouveau modeset=0
 EOF
 fi
 
+# --- Enable NVIDIA kernel modesetting (required for GNOME on Wayland) ---------
+# This laptop runs in dGPU-only mode (no Intel iGPU on the PCI bus), so the
+# NVIDIA card drives the panel. Without modeset=1 mutter fails with
+# "DRM_CLIENT_CAP_UNIVERSAL_PLANES not supported / No GPUs found" and GDM loops
+# on a black screen. Debian ships the module as nvidia-current-drm, so set the
+# option under both names.
+log "Enabling nvidia-drm modeset..."
+cat >/etc/modprobe.d/nvidia-kms.conf <<'EOF'
+options nvidia-drm modeset=1 fbdev=1
+options nvidia-current-drm modeset=1 fbdev=1
+EOF
+
 log "Rebuilding initramfs..."
 update-initramfs -u
 

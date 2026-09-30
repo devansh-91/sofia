@@ -4,7 +4,7 @@ A voice-assisted, **Hinglish** AI agent with **emotional intelligence** — it s
 responds empathetically, and modulates its own voice (pitch/emotion) to fit the moment. Runs locally
 on your laptop, reachable from your phone.
 
-> 🚧 Early scaffolding — no application code yet. This repo is set up and ready for development.
+> 🚧 Early days — text chat with Sofia works (`python3 -m sofia.chat`); voice (STT / emotion / TTS) and the phone client are not built yet.
 
 ## Vision
 
@@ -70,30 +70,31 @@ Everything competes for 6 GB, so the split is deliberate:
 
 | Component | Runs on | Footprint |
 |-----------|---------|-----------|
-| Qwen3.5-4B — **Q4_K_M** quant | GPU | ~3.0–3.5 GB |
+| Qwen3.5-4B — **Q4_K_M** quant | GPU | ~3.9 GB measured (planned 3.0–3.5) |
 | STT (faster-whisper) | **CPU** (frees VRAM) | 0 GB VRAM |
 | Emotional TTS (small model) | GPU | ~1.5–2 GB |
 | KV cache / context | GPU | remainder |
 
-Q4 is the right quant — Q5+ won't leave room for TTS. Expect ~25–35 tok/s once CUDA is working.
+Q4 is the right quant — Q5+ won't leave room for TTS. Measured speed is ~43–48 tok/s.
 
 ### ⚠️ Prerequisite: NVIDIA driver + CUDA
 
-`nvidia-smi` is currently missing — the GPU driver/CUDA is **not installed**. Until it is, inference
-falls back to CPU (slow). **Installing the NVIDIA driver + CUDA on Kali is step 0.**
+Inference needs the proprietary NVIDIA driver; on `nouveau` there is no CUDA and everything falls
+back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: driver 550.163.01
+(CUDA 12.4), with kernel modesetting on so GNOME/Wayland runs on the NVIDIA card.
 
 ## Decisions so far
 
 | Area | Choice |
 |------|--------|
-| Model | Qwen3.5-4B-Uncensored (Q4_K_M) |
+| Model | [HauhauCS Qwen3.5-4B-Uncensored "Aggressive"](https://huggingface.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive) (Q4_K_M), wrapped as the `sofia` Ollama model |
+| LLM runtime | Ollama (systemd service on `127.0.0.1:11434`, CUDA backend) |
 | Hosting | Local on this laptop (no AWS — free tier can't run a 4B model) |
 | Phone access | Private tunnel (e.g. Tailscale) to the laptop |
 | Interface | Voice-assisted, Hinglish, emotionally aware |
 
 ## Still to decide
 
-- **LLM runtime:** Ollama vs. llama.cpp vs. vLLM
 - **STT:** faster-whisper model size for Hinglish (base / small / medium)
 - **SER:** which speech-emotion model (wav2vec2 / SpeechBrain), and its emotion label set
 - **Emotional TTS:** the crux — XTTS-v2 (multilingual, incl. Hindi) vs. StyleTTS2 / Parler-TTS (expressive, English-first). Getting expressive *Hinglish* out is the hardest problem.
@@ -108,14 +109,23 @@ falls back to CPU (slow). **Installing the NVIDIA driver + CUDA on Kali is step 
 
 ### Step 0 — GPU driver (do this first)
 
-The laptop currently runs the open `nouveau` driver (no CUDA). Switch to NVIDIA's proprietary
-driver so Sofia can use the RTX 3050. Secure Boot is off and matching kernel headers are available,
-so this is a clean install.
+Kali ships the open `nouveau` driver (no CUDA). Switch to NVIDIA's proprietary driver so Sofia can
+use the RTX 3050. Secure Boot is off and matching kernel headers are available, so this is a clean
+install.
 
 ```bash
-sudo ./scripts/setup-gpu.sh   # installs headers + dkms + NVIDIA 550, blacklists nouveau
+sudo ./scripts/setup-gpu.sh   # installs headers + dkms + NVIDIA 550, blacklists nouveau, enables KMS
 sudo reboot
-./scripts/verify-gpu.sh       # after reboot: confirms nvidia-smi + free VRAM
+./scripts/verify-gpu.sh       # after reboot: confirms driver, KMS, nvidia-smi + free VRAM
+```
+
+This laptop is **dGPU-only** (no Intel iGPU on the PCI bus), so the NVIDIA card drives the panel and
+GNOME/Wayland needs `nvidia-drm modeset=1`. `setup-gpu.sh` sets it; if the driver was installed
+without it and GDM loops on a black screen, boot the recovery entry and run:
+
+```bash
+sudo ./scripts/fix-kms.sh     # writes /etc/modprobe.d/nvidia-kms.conf, rebuilds initramfs
+sudo reboot
 ```
 
 ### Performance / power tuning
@@ -132,9 +142,92 @@ sudo ./scripts/performance-mode.sh off      # back to balanced
 The agent will call `performance-mode.sh auto` on start and `off` on stop. No power-profiles
 daemon is running, so these settings apply directly.
 
+### Step 1 — LLM runtime (Ollama)
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh   # run in a real terminal (needs sudo)
+journalctl -u ollama -b | grep 'inference compute'   # must say library=CUDA, not cpu
+```
+
+If the log shows `library=cpu` / `total_vram="0 B"` even though `nvidia-smi` works, the Ollama
+install is stale or incomplete (its `cuda_v12` libs missing or unreadable) — re-run the installer.
+
+### Step 2 — Sofia's model
+
+```bash
+ollama pull hf.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive:Q4_K_M   # 3.4 GB
+ollama create sofia -f models/Sofia.Modelfile    # adds persona, examples + sampling params
+python3 -m sofia.chat                            # chat in the terminal; "bye" to exit
+```
+
+`models/Sofia.Modelfile` holds the persona (short spoken replies, unfiltered) plus a set of example
+exchanges; re-run `ollama create` after editing it. **Always run with thinking off** — with it on,
+the model loops over drafts until the context is full and never answers. Via the API that is
+`"think": false` (`sofia/chat.py` sets it); with plain `ollama run sofia` pass `--think=false`.
+
+**Language:** Sofia replies in English to English and in Roman-script Hinglish to Hindi/Hinglish
+(Roman or Devanagari). The 4B model can't pick the language reliably by itself, so `sofia/lang.py`
+detects it per message and `sofia/chat.py` appends an explicit reply instruction — plain
+`ollama run sofia` skips that step and mostly answers in Hinglish. Very short messages ("haha ok")
+keep the previous language.
+
+**Hinglish quality** comes from three things in the Modelfile: temperature 0.3, *no* repeat penalty
+(it punishes the hai/ka/ko words Hindi repeats constantly), and the example exchanges. On top of
+that, `sofia/polish.py` cleans each reply in code: "bhai" used as an address becomes "yaar",
+masculine first-person verbs become feminine ("aata hoon" → "aati hoon"), and markdown, emojis and
+leaked bracket instructions are stripped. Replies are coherent most of the time, but a 4B model
+still produces the odd phrase that doesn't make sense, and its jokes are weak.
+
+**Active learning:** Sofia learns while you talk and carries it into every later conversation.
+The model's weights do not change (yet) — after each of your messages a second small prompt
+(`sofia/memory.py`) works out what to keep, saves it to `~/.local/share/sofia/memory.json`, and
+`sofia/chat.py` feeds it back into later prompts. It costs about 0.3–1 s per message and no extra
+VRAM (same weights). She prints `(yaad rakha: ...)` whenever she stores something.
+
+| She learns | From | How it is used |
+|---|---|---|
+| Facts about you | "Mera ek kutta hai, Bruno." | Background for every reply; a newer fact replaces the one it outdates |
+| How you behave | A reflection over every 6 exchanges (and at exit) | "User copes with work stress by asking for roasts." shapes how she treats you |
+| Your moods and habits | Mood of each message, time of day, language — counted in code | "User usually chats late at night.", "Lately the user has often been stressed." (needs 10+ messages over 3+ days) |
+| Things you teach her | "Mumbai mein 'bantai' ka matlab dost hota hai." | Background for every reply |
+| Standing rules | "Mujhe bhai mat bola kar.", "Stop giving advice." | Attached to every message you send |
+| Replies you liked | You praise a reply ("haha mast tha"), or type `/good` | Saved as an example, shown to her again when you say something similar |
+| Replies you corrected | `/say <the reply she should have given>` | Same — your version replaces hers |
+
+- While she knows fewer than 12 facts about you, she asks a getting-to-know-you question every few turns.
+- Moods, one-off requests ("roast me") and things that happened today are not stored; upcoming
+  events are stored with a real date.
+- Behaviour notes are the model's reading of you from a few messages, so some will be off or
+  overstated — delete the wrong ones.
+- `/memory` lists everything she has learned, `/forget 3` removes item 3, `/forget all` wipes it.
+  A wrong standing rule bends every reply, so check `/memory` if she starts acting odd.
+- Limits: 40 facts, 12 behaviour notes, 20 taught items, 15 rules, 40 examples; oldest dropped first. Dates beyond
+  "tomorrow" are worked out by the model and can be wrong, and she does not yet notice when a dated
+  event has passed.
+
+**Conversation log (for real fine-tuning later):** every exchange is appended to
+`~/.local/share/sofia/conversations.jsonl` (owner-readable only), with your praise, criticism and
+corrections recorded against the turn. Nothing trains on it yet.
+
+```bash
+python3 -m sofia.log                     # how many exchanges have been collected
+python3 -m sofia.log export train.jsonl  # chat-format examples: corrections applied, disliked replies dropped
+```
+
+```bash
+python3 -m unittest discover tests               # language, clean-up, memory + log tests
+```
+
+Measured on this laptop (4096-token context): ~43–48 tok/s, 100% GPU, ~4.0 GB VRAM in use with the
+model loaded, ~1.9 GB free for TTS. That is above the 3.0–3.5 GB budgeted above, so TTS has to fit
+in ~1.9 GB or run on CPU.
+
+Tried and rejected: stock `qwen3.5:4b` (refuses), Dolphin 3.0 Llama3.2-3B (fits easily but doesn't
+understand Hinglish). Ruled out on size without testing: Dolphin 3 8B (4.9 GB download).
+
 ### Remaining setup
 
-_TBD — LLM runtime (Ollama), voice stack (STT/SER/TTS), and phone client land next._
+_TBD — voice stack (STT/SER/TTS), the agent loop, and phone client land next._
 
 ## License
 

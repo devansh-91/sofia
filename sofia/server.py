@@ -180,7 +180,7 @@ def main() -> None:
     Handler.sofia = Sofia(speech=not arguments.no_speech)
     server = ThreadingHTTPServer((arguments.host, arguments.port), Handler)
     print(f"Sofia is up ({'text + voice' if Handler.sofia.speech else 'text only'}).")
-    print(f"  Open: http://{arguments.host}:{arguments.port}/?key={Handler.key}")
+    print(f"  Open: http://{arguments.host}:{arguments.port}/?key={Handler.key}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

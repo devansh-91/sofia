@@ -57,8 +57,12 @@ Sofia is tuned for the specific machine it runs on:
 | GPU | NVIDIA RTX 3050 **6 GB** Laptop (GA107) |
 | CPU | Intel i5-12450HX, 8C / 12T (12th gen) |
 | RAM | 15 GB |
-| Disk | ~24 GB free (watch this — models add up) |
+| Disk | `/home` on ext4 with **214 GB free** — models, venvs & HF cache all live here |
 | OS | Kali GNU/Linux Rolling |
+
+> Note: a second 931 GB NVMe drive exists but is all **NTFS** — avoid it for models/venvs
+> (NTFS breaks symlinks & POSIX perms that HuggingFace caches and venvs rely on). Everything
+> stays under `/home`.
 
 ### VRAM budget (6 GB is the constraint)
 
@@ -98,7 +102,7 @@ falls back to CPU (slow). **Installing the NVIDIA driver + CUDA on Kali is step 
 ### Known-hard problems (be realistic)
 - **Sarcasm** — hardest to both detect (it's context, not just prosody) and to synthesize. Treat as a stretch goal, not v1.
 - **Expressive code-switched Hinglish TTS** — the frontier; most expressive TTS is English-only.
-- **Live loop on 6 GB** — needs careful sequencing so SER + STT + LLM + TTS don't peak at once.
+- **Live loop on 6 GB VRAM** — needs careful sequencing so SER + STT + LLM + TTS don't peak at once. (Disk/RAM are fine; VRAM is the only tight resource.)
 
 ## Getting Started
 

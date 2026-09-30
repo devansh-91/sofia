@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sofia</title>
+<style>
+  :root { color-scheme: dark; --bg: #121016; --panel: #1d1a24; --mine: #6d4aff; --hers: #2a2633; --text: #f2eff7; --dim: #9a93a8; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; }
+  header { padding: 12px 16px; background: var(--panel); display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  header label { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  #log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 82%; padding: 9px 13px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .me { align-self: flex-end; background: var(--mine); border-bottom-right-radius: 4px; }
+  .her { align-self: flex-start; background: var(--hers); border-bottom-left-radius: 4px; }
+  .note { align-self: center; color: var(--dim); font-size: 13px; text-align: center; white-space: pre-wrap; }
+  form { display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); }
+  input[type=text] { flex: 1; min-width: 0; padding: 11px 14px; border-radius: 22px; border: 0; background: var(--bg); color: var(--text); font-size: 16px; }
+  button { border: 0; border-radius: 22px; padding: 0 16px; background: var(--mine); color: #fff; font-size: 16px; min-height: 44px; }
+  button:disabled { opacity: .5; }
+  #mic.recording { background: #e5484d; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sofia</h1>
+  <label id="speakLabel" hidden><input type="checkbox" id="speak" checked> voice</label>
+</header>
+<div id="log"></div>
+<form id="form">
+  <button type="button" id="mic" hidden aria-label="Hold to talk">🎙</button>
+  <input type="text" id="text" placeholder="English ya Hinglish…" autocomplete="off">
+  <button type="submit" id="send">Send</button>
+</form>
+<script>
+const log = document.getElementById("log"), form = document.getElementById("form"), input = document.getElementById("text");
+const mic = document.getElementById("mic"), send = document.getElementById("send"), speak = document.getElementById("speak");
+
+// The key arrives in the link once, then lives in this browser only.
+const fromLink = new URLSearchParams(location.search).get("key");
+if (fromLink) { localStorage.setItem("sofiaKey", fromLink); history.replaceState(null, "", "/"); }
+const key = localStorage.getItem("sofiaKey") || "";
+
+function add(kind, text) {
+  const bubble = document.createElement("div");
+  bubble.className = kind === "note" ? "note" : "msg " + kind;
+  bubble.textContent = text;
+  log.appendChild(bubble);
+  log.scrollTop = log.scrollHeight;
+  return bubble;
+}
+
+async function call(path, options = {}) {
+  const response = await fetch(path, { ...options, headers: { ...(options.headers || {}), "X-Sofia-Key": key } });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+async function show(data) {
+  if (data.command !== undefined) return add("note", data.command);
+  if (data.error) return add("note", data.error);
+  add("her", data.answer);
+  for (const item of data.learned || []) add("note", "yaad rakha: " + item);
+  if (data.audio && speak.checked) {
+    const audio = await fetch("/audio/" + data.audio, { headers: { "X-Sofia-Key": key } });
+    if (audio.ok) new Audio(URL.createObjectURL(await audio.blob())).play().catch(() => {});
+  }
+}
+
+async function busy(work) {
+  send.disabled = mic.disabled = true;
+  const waiting = add("note", "…");
+  try { await work(); } catch (error) { add("note", "Problem: " + error.message); }
+  waiting.remove();
+  send.disabled = mic.disabled = false;
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  add("me", text);
+  busy(async () => show(await call("/api/chat", { method: "POST", body: JSON.stringify({ text }) })));
+});
+
+// Tap the mic to start, tap again to send.
+let recorder = null;
+mic.addEventListener("click", async () => {
+  if (recorder) { recorder.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (error) { return add("note", "Microphone blocked: " + error.message); }
+  const chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (event) => chunks.push(event.data);
+  recorder.onstop = () => {
+    stream.getTracks().forEach((track) => track.stop());
+    mic.classList.remove("recording");
+    const blob = new Blob(chunks, { type: recorder.mimeType });
+    recorder = null;
+    busy(async () => {
+      const data = await call("/api/voice", { method: "POST", body: blob });
+      if (!data.heard) return add("note", "Didn't catch that.");
+      add("me", data.heard + (data.sounds && data.sounds !== "neutral" ? "  (" + data.sounds + ")" : ""));
+      await show(data);
+    });
+  };
+  recorder.start();
+  mic.classList.add("recording");
+});
+
+(async () => {
+  if (!key) return add("note", "Open the link printed by ./scripts/sofia.sh serve — it carries your access key.");
+  try {
+    const status = await call("/api/status");
+    document.getElementById("speakLabel").hidden = !status.speech;
+    // Browsers only hand out the microphone on https or localhost.
+    mic.hidden = !(status.speech && navigator.mediaDevices && window.MediaRecorder);
+    add("note", "Commands: /good, /say <better reply>, /memory, /forget <number>");
+  } catch (error) { add("note", "Can't reach Sofia: " + error.message); }
+})();
+</script>
+</body>
+</html>

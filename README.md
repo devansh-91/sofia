@@ -4,7 +4,7 @@ A voice-assisted, **Hinglish** AI agent with **emotional intelligence** — it s
 responds empathetically, and modulates its own voice (pitch/emotion) to fit the moment. Runs locally
 on your laptop, reachable from your phone.
 
-> 🚧 Early days — text chat with Sofia works (`python3 -m sofia.chat`); voice (STT / emotion / TTS) and the phone client are not built yet.
+> 🚧 Working end to end, roughly: `./scripts/sofia.sh` starts text + voice chat in the browser (laptop or phone). The voice is a plain TTS with pitch/pace shaping, not yet a truly emotional one.
 
 ## Vision
 
@@ -72,7 +72,8 @@ Everything competes for 6 GB, so the split is deliberate:
 |-----------|---------|-----------|
 | Qwen3.5-4B — **Q4_K_M** quant | GPU | ~3.9 GB measured (planned 3.0–3.5) |
 | STT (faster-whisper) | **CPU** (frees VRAM) | 0 GB VRAM |
-| Emotional TTS (small model) | GPU | ~1.5–2 GB |
+| SER (wav2vec2) | **CPU** | 0 GB VRAM |
+| TTS (Piper) | **CPU** | 0 GB VRAM — leaves ~1.9 GB free for a real emotional TTS later |
 | KV cache / context | GPU | remainder |
 
 Q4 is the right quant — Q5+ won't leave room for TTS. Measured speed is ~43–48 tok/s.
@@ -90,15 +91,21 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
 | Model | [HauhauCS Qwen3.5-4B-Uncensored "Aggressive"](https://huggingface.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive) (Q4_K_M), wrapped as the `sofia` Ollama model |
 | LLM runtime | Ollama (systemd service on `127.0.0.1:11434`, CUDA backend) |
 | Hosting | Local on this laptop (no AWS — free tier can't run a 4B model) |
+| STT | faster-whisper `small`, int8, on CPU; chooses between Hindi and English per utterance |
+| SER | `superb/wav2vec2-base-superb-er` on CPU (neutral / happy / angry / sad) |
+| TTS | Piper on CPU: `hi_IN-priyamvada` for Hinglish, `en_US-amy` for English; mood sets pitch and pace |
+| Phone client | Web app served by `sofia/server.py`, protected by an access key |
 | Phone access | Private tunnel (e.g. Tailscale) to the laptop |
 | Interface | Voice-assisted, Hinglish, emotionally aware |
 
 ## Still to decide
 
-- **STT:** faster-whisper model size for Hinglish (base / small / medium)
-- **SER:** which speech-emotion model (wav2vec2 / SpeechBrain), and its emotion label set
-- **Emotional TTS:** the crux — XTTS-v2 (multilingual, incl. Hindi) vs. StyleTTS2 / Parler-TTS (expressive, English-first). Getting expressive *Hinglish* out is the hardest problem.
-- **Phone client:** web app (PWA) vs. native Android vs. chat-bot
+- **Emotional TTS:** the crux. Piper is a stand-in: clear, but one speaking style per voice, and
+  Sofia has a different voice in each language. Candidates for a real one: XTTS-v2 (multilingual,
+  incl. Hindi) vs. StyleTTS2 / Parler-TTS (expressive, English-first) — it has to fit in ~1.9 GB VRAM.
+- **SER for Hinglish:** the current model is trained on acted English and is unverified on real
+  Hinglish speech; emotion2vec is the likely replacement.
+- **STT speed:** ~3–4 s per utterance on CPU. Moving Whisper to the GPU would cut that, at ~0.6 GB VRAM.
 
 ### Known-hard problems (be realistic)
 - **Sarcasm** — hardest to both detect (it's context, not just prosody) and to synthesize. Treat as a stretch goal, not v1.
@@ -225,9 +232,48 @@ in ~1.9 GB or run on CPU.
 Tried and rejected: stock `qwen3.5:4b` (refuses), Dolphin 3.0 Llama3.2-3B (fits easily but doesn't
 understand Hinglish). Ruled out on size without testing: Dolphin 3 8B (4.9 GB download).
 
-### Remaining setup
+### Step 3 — Voice and phone
 
-_TBD — voice stack (STT/SER/TTS), the agent loop, and phone client land next._
+```bash
+./scripts/sofia.sh setup     # .venv + speech stack, two Piper voices, STT + emotion models, sofia model
+./scripts/sofia.sh           # start everything: web app with text + voice
+./scripts/sofia.sh voice     # or talk in the terminal: Enter, speak, Enter
+./scripts/sofia.sh chat      # text only, in the terminal
+./scripts/sofia.sh test      # unit tests
+```
+
+One voice turn runs the whole affective loop:
+
+```
+mic → faster-whisper (what you said) ─┐
+    → wav2vec2 SER  (how you sounded) ─┴→ Sofia (LLM + memory) → reply
+reply → Devanagari respelling (LLM) → Piper → pitch/pace for the mood → speaker
+```
+
+- **What you said:** Hindi comes back in Devanagari and English in English; the chat handles both.
+- **How you sounded:** the mood heard in your voice is passed to her as `[The user sounds sad.]` and
+  overrides the mood guessed from the words. Below 70 % confidence it is treated as neutral.
+- **Her voice:** soft (lower, slower) when you are sad, lonely or tired; calm when you are stressed,
+  anxious or angry; bright (higher, faster) when you are happy; playful when you are bored. This
+  follows *your* mood — the model does not yet choose its own style tag as in the diagram above.
+- **Timing:** about 9 s from the end of your speech to her reply on this laptop (STT ~4 s).
+- **Microphone level:** at the default input volume this laptop's mic clips on room noise alone and
+  nothing is recognised. `wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.2` fixes it; the voice loop
+  warns when a recording is clipped.
+
+**Phone:** the web app listens on `127.0.0.1:8765` and prints a link containing an access key
+(stored in `~/.local/share/sofia/access-key`). Every API call needs that key — this is an
+unfiltered model with your personal memory behind it. To reach it from the phone, put both devices
+on Tailscale and let it provide https, which the phone's browser needs before it allows the mic:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up   # once, on the laptop
+sudo tailscale serve --bg 8765        # https://<laptop>.<tailnet>.ts.net → the web app
+```
+
+Then open `https://<laptop>.<tailnet>.ts.net/?key=<access key>` on the phone. Without https
+(e.g. `./scripts/sofia.sh serve --host 0.0.0.0` on home Wi-Fi) text chat and her voice still work,
+but the mic button stays hidden.
 
 ## License
 

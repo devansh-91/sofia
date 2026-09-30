@@ -9,7 +9,7 @@ import os
 from sofia import ollama
 from sofia.lang import ENGLISH, HINGLISH, REPLY_INSTRUCTION, detect
 from sofia.log import GOOD, ConversationLog
-from sofia.memory import FACTS, NONE, Memory
+from sofia.memory import FACTS, MOODS, NEUTRAL, NONE, Memory
 from sofia.polish import polish
 
 MODEL = os.environ.get("SOFIA_MODEL", "sofia")
@@ -49,18 +49,29 @@ def _in_english(hinglish: str) -> str:
     )
 
 
-def reply(history: list[dict], text: str, language: str, memory: Memory | None = None, curious: bool = False) -> str:
-    """Append the user's turn and Sofia's answer to `history`; return the answer."""
+def reply(
+    history: list[dict],
+    text: str,
+    language: str,
+    memory: Memory | None = None,
+    curious: bool = False,
+    sounds: str = NEUTRAL,
+) -> str:
+    """Append the user's turn and Sofia's answer to `history`; return the answer.
+
+    `sounds` is the mood heard in the user's voice, when they spoke rather than typed.
+    """
     history.append(_user_turn(text, language))
     del history[:-MAX_HISTORY_MESSAGES]
-    messages = history
+    heard = f"[The user sounds {sounds}.]" if sounds != NEUTRAL else ""
+    messages = history[:-1] + [_user_turn(text, language, heard)]
     if memory:
         learned = []
         for example in memory.examples_for(text, language):
             learned += [_user_turn(example["user"], example["language"]),
                         {"role": "assistant", "content": example["sofia"]}]
         # Notes ride only on the newest message, so they are never repeated in history.
-        newest = _user_turn(text, language, memory.preference_note(), CURIOSITY_NOTE if curious else "")
+        newest = _user_turn(text, language, heard, memory.preference_note(), CURIOSITY_NOTE if curious else "")
         messages = memory.background() + learned + history[:-1] + [newest]
     answer = ollama.chat(MODEL, messages)
     # The model occasionally slips into Hinglish on an English turn (food and other
@@ -93,17 +104,26 @@ class Session:
         self.last_id = ""
         self.unreflected: list[dict] = []
 
-    def say(self, text: str) -> tuple[str, list[str]]:
-        """Answer `text`; return (answer, things she learned from it)."""
+    @property
+    def mood(self) -> str:
+        """The user's mood in their latest message (heard in their voice, else read from the text)."""
+        moods = self.memory.items[MOODS]
+        return moods[-1]["mood"] if moods else NEUTRAL
+
+    def say(self, text: str, sounds: str = NEUTRAL) -> tuple[str, list[str]]:
+        """Answer `text`; return (answer, things she learned from it).
+
+        `sounds` is the mood heard in the user's voice, when they spoke rather than typed.
+        """
         self.language = detect(text, previous=self.language)
         self.turns += 1
         curious = (
             len(self.memory.items[FACTS]) < CURIOUS_BELOW_FACTS and self.turns % CURIOUS_EVERY_TURNS == 2
         )
         previous, previous_id = self.last, self.last_id
-        answer = reply(self.history, text, self.language, self.memory, curious)
+        answer = reply(self.history, text, self.language, self.memory, curious, sounds)
         # learn() keeps a praised reply as an example; the log records praise and criticism.
-        learned, reaction = self.memory.learn(text, self.language, previous)
+        learned, reaction = self.memory.learn(text, self.language, previous, heard_mood=sounds)
         if reaction != NONE:
             self.log.feedback(previous_id, reaction)
         self.last = {"user": text, "sofia": answer, "language": self.language}

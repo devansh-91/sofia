@@ -413,7 +413,9 @@ class Memory:
             self.save()
         return learned
 
-    def learn(self, message: str, language: str, previous: dict | None = None) -> tuple[list[str], str]:
+    def learn(
+        self, message: str, language: str, previous: dict | None = None, heard_mood: str = NEUTRAL
+    ) -> tuple[list[str], str]:
         """Extract, store and save anything worth remembering.
 
         `previous` is the exchange before this message ({"user", "sofia", "language"}):
@@ -427,7 +429,8 @@ class Memory:
                 learned.append(fact)
         learned += [item for item in found[TAUGHT] if self.add(TAUGHT, item)]
         learned += [item for item in found[PREFERENCES] if self._add_preference(item)]
-        self.record_mood(found[MOOD], language)
+        # A mood heard in the user's voice beats one guessed from their words.
+        self.record_mood(heard_mood if heard_mood != NEUTRAL else found[MOOD], language)
         if previous and found[FEEDBACK] == GOOD:
             self.add_example(**previous)
             learned.append(f'Reply you liked: "{previous["sofia"]}"')

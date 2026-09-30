@@ -106,7 +106,35 @@ falls back to CPU (slow). **Installing the NVIDIA driver + CUDA on Kali is step 
 
 ## Getting Started
 
-_TBD — setup lands once the runtime and voice stack are chosen. Step 0 will be NVIDIA/CUDA setup._
+### Step 0 — GPU driver (do this first)
+
+The laptop currently runs the open `nouveau` driver (no CUDA). Switch to NVIDIA's proprietary
+driver so Sofia can use the RTX 3050. Secure Boot is off and matching kernel headers are available,
+so this is a clean install.
+
+```bash
+sudo ./scripts/setup-gpu.sh   # installs headers + dkms + NVIDIA 550, blacklists nouveau
+sudo reboot
+./scripts/verify-gpu.sh       # after reboot: confirms nvidia-smi + free VRAM
+```
+
+### Performance / power tuning
+
+Sofia can push the laptop hard while it's running. Use max performance on AC, ease off on battery:
+
+```bash
+sudo ./scripts/performance-mode.sh on      # force max performance (CPU + GPU)
+sudo ./scripts/performance-mode.sh auto     # performance on AC, balanced on battery
+sudo ./scripts/performance-mode.sh off      # back to balanced
+     ./scripts/performance-mode.sh status   # inspect current state (no sudo)
+```
+
+The agent will call `performance-mode.sh auto` on start and `off` on stop. No power-profiles
+daemon is running, so these settings apply directly.
+
+### Remaining setup
+
+_TBD — LLM runtime (Ollama), voice stack (STT/SER/TTS), and phone client land next._
 
 ## License
 

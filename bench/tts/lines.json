@@ -1,0 +1,62 @@
+[
+  {
+    "id": "l01",
+    "mood": "neutral",
+    "roman": "Hey, aa gaya tu! Bata, aaj ka din kaisa raha?",
+    "devanagari": "हे, आ गया तू! बता, आज का दिन कैसा रहा?"
+  },
+  {
+    "id": "l02",
+    "mood": "happy",
+    "roman": "Waah, promotion mil gaya? Yeh toh kamaal ho gaya yaar, party pakki!",
+    "devanagari": "वाह, प्रमोशन मिल गया? ये तो कमाल हो गया यार, पार्टी पक्की!"
+  },
+  {
+    "id": "l03",
+    "mood": "happy",
+    "roman": "{laugh} Tu bhi na, pagal hai bilkul! Maine itna funny kabhi nahi suna.",
+    "devanagari": "{laugh} तू भी ना, पागल है बिल्कुल! मैंने इतना फ़नी कभी नहीं सुना।"
+  },
+  {
+    "id": "l04",
+    "mood": "sad",
+    "roman": "Oh... yeh sunke bura laga. Main yahin hoon, aaram se bata kya hua.",
+    "devanagari": "ओह... ये सुनके बुरा लगा। मैं यहीं हूँ, आराम से बता क्या हुआ।"
+  },
+  {
+    "id": "l05",
+    "mood": "stressed",
+    "roman": "Tension mat le, ek ek karke dekhte hain. Pehle saans le, phir baat karte hain.",
+    "devanagari": "टेंशन मत ले, एक एक करके देखते हैं। पहले साँस ले, फिर बात करते हैं।"
+  },
+  {
+    "id": "l06",
+    "mood": "neutral",
+    "roman": "Bas, ab bahane nahi chalenge. Kal subah se gym, aur main check karungi.",
+    "devanagari": "बस, अब बहाने नहीं चलेंगे। कल सुबह से जिम, और मैं चेक करूँगी।"
+  },
+  {
+    "id": "l07",
+    "mood": "neutral",
+    "roman": "Ho gaya! Downloads folder se saari PDF files maine Documents mein move kar di hain.",
+    "devanagari": "हो गया! डाउनलोड्स फ़ोल्डर से सारी पीडीएफ़ फ़ाइल्स मैंने डॉक्यूमेंट्स में मूव कर दी हैं।"
+  },
+  {
+    "id": "l08",
+    "mood": "neutral",
+    "roman": "Tera Python script chal gaya, bas line forty-two pe ek chhota sa bug tha, maine fix kar diya.",
+    "devanagari": "तेरा पाइथन स्क्रिप्ट चल गया, बस लाइन फ़ोर्टी-टू पे एक छोटा सा बग था, मैंने फ़िक्स कर दिया।"
+  },
+  {
+    "id": "l09",
+    "mood": "tired",
+    "roman": "{sigh} Aaj bahut lamba din tha na? Chal, thoda rest kar le, kal fresh start karenge.",
+    "devanagari": "{sigh} आज बहुत लंबा दिन था ना? चल, थोड़ा रेस्ट कर ले, कल फ़्रेश स्टार्ट करेंगे।"
+  },
+  {
+    "id": "l10",
+    "mood": "bored",
+    "roman": "Accha sun, ek baat bata... tu mujhse kuch chhupa toh nahi raha?",
+    "devanagari": "अच्छा सुन, एक बात बता... तू मुझसे कुछ छुपा तो नहीं रहा?"
+  }
+]

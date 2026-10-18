@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sofia Voice Bench</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1c1a; --muted: #6b6862; --line: #e3e0da;
+    --accent: #c2410c; --accent-soft: #fde7d9; --good: #15803d; --bad: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161513; --card: #201f1c; --text: #ecebe8; --muted: #a29e96; --line: #34322e;
+      --accent: #fb923c; --accent-soft: #3a2517; --good: #4ade80; --bad: #f87171;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161513; --card: #201f1c; --text: #ecebe8; --muted: #a29e96; --line: #34322e;
+    --accent: #fb923c; --accent-soft: #3a2517; --good: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans Devanagari", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .muted { color: var(--muted); }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+           border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 12px 0; }
+  .text { font-size: 1.05rem; margin: 2px 0; }
+  .dev { color: var(--muted); font-size: .95rem; }
+  .mood { display: inline-block; font-size: .78rem; padding: 1px 8px; border-radius: 99px;
+          background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
+  .take { display: grid; grid-template-columns: 2.2rem 1fr; gap: 4px 10px; align-items: center;
+          padding: 10px 0; border-top: 1px solid var(--line); }
+  .take:first-of-type { border-top: 0; }
+  .label { font-weight: 700; font-size: 1.1rem; text-align: center; }
+  audio { width: 100%; height: 36px; }
+  .stars { grid-column: 2; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .stars button { min-width: 2.4rem; padding: 4px 0; }
+  .stars button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .meta { grid-column: 2; font-size: .82rem; color: var(--muted); }
+  .meta b { color: var(--text); font-weight: 600; }
+  .err { color: var(--bad); font-size: .9rem; grid-column: 2; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sofia Voice Bench</h1>
+  <p class="muted">Har line ke saare versions suno aur 1–5 do (5 = bilkul insaan jaisa, 1 = robot).
+    Naam chhupe hain taaki bias na ho. Sab rate karne ke baad <b>Naam dikhao</b> dabao.</p>
+
+  <div class="card" id="ref-card">
+    <div><b>Reference voice</b> <span class="muted">— cloning engines (OmniVoice, Chatterbox, IndicF5) isi awaaz ko copy karte hain</span></div>
+    <audio controls preload="none" src="/audio/ref/ref.wav"></audio>
+  </div>
+
+  <div class="bar">
+    <button class="primary" id="reveal">Naam dikhao</button>
+    <span class="muted" id="progress"></span>
+  </div>
+
+  <div id="summary" class="card hidden">
+    <b>Result</b>
+    <div class="scroll"><table id="summary-table"></table></div>
+    <p class="muted" style="font-size:.85rem;margin-bottom:0">
+      RTF = bolne mein laga time ÷ audio ki length (1 se kam = real-time se tez). VRAM = engine ne GPU pe kitna liya
+      (Sofia ka Qwen load ho toh sirf ~0.8 GB bachta hai — "Sofia ke saath" column yahi test hai). CER = Whisper ne jo suna wo text se kitna alag (kam = saaf).</p>
+  </div>
+
+  <div id="lines"></div>
+</main>
+<script>
+const LETTERS = "ABCDEFGH";
+let state = { lines: [], engines: [], ratings: {} };
+let revealed = location.hash === "#reveal";
+
+function hash(text) { let h = 2166136261; for (const c of text) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function shuffled(items, seed) {
+  const out = items.slice(); let s = seed;
+  for (let i = out.length - 1; i > 0; i--) { s = (Math.imul(s, 1103515245) + 12345) >>> 0; const j = s % (i + 1); [out[i], out[j]] = [out[j], out[i]]; }
+  return out;
+}
+function el(tag, attrs = {}, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (k === "class") node.className = v; else if (k.startsWith("on")) node.addEventListener(k.slice(2), v); else node.setAttribute(k, v); }
+  for (const kid of kids) if (kid != null) node.append(kid);
+  return node;
+}
+const fmt = (v, digits = 2) => v == null ? "–" : Number(v).toFixed(digits);
+
+async function rate(engine, line, score) {
+  const current = state.ratings[engine]?.[line];
+  if (current === score) score = 0;
+  state.ratings[engine] ??= {};
+  if (score) state.ratings[engine][line] = score; else delete state.ratings[engine][line];
+  render();
+  await fetch("/api/rate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine, line, score }) });
+}
+
+function listening() { return state.engines.filter(e => !e.name.includes("@") && !e.error); }
+
+function renderLines() {
+  const root = document.getElementById("lines"); root.replaceChildren();
+  const engines = listening();
+  let rated = 0, total = 0;
+  for (const line of state.lines) {
+    const card = el("div", { class: "card" },
+      el("div", {}, el("span", { class: "mood" }, line.mood), el("span", { class: "muted" }, line.id)),
+      el("div", { class: "text" }, line.roman.replace("{laugh}", "😄").replace("{sigh}", "😮‍💨")),
+      el("div", { class: "dev" }, line.devanagari.replace("{laugh}", "😄").replace("{sigh}", "😮‍💨")));
+    shuffled(engines, hash(line.id)).forEach((engine, i) => {
+      const score = state.ratings[engine.name]?.[line.id];
+      total++; if (score) rated++;
+      const result = (engine.lines || []).find(r => r.id === line.id) || {};
+      const check = engine.check?.[line.id];
+      const take = el("div", { class: "take" }, el("div", { class: "label" }, LETTERS[i]));
+      if (engine.clips.includes(line.id)) {
+        take.append(el("audio", { controls: "", preload: "none", src: `/audio/${encodeURIComponent(engine.name)}/${line.id}.wav` }));
+        const stars = el("div", { class: "stars" });
+        for (let n = 1; n <= 5; n++) stars.append(el("button", { class: score === n ? "on" : "", onclick: () => rate(engine.name, line.id, n) }, String(n)));
+        take.append(stars);
+      } else {
+        take.append(el("div", { class: "err" }, result.error || "clip missing"));
+      }
+      if (revealed) {
+        const meta = el("div", { class: "meta" }, el("b", {}, engine.name), ` · RTF ${fmt(result.rtf)}`);
+        if (check) meta.append(` · CER ${check.mixed_script ? "n/a (English likha)" : fmt(check.cer)} · Whisper ne suna: “${check.heard}”`);
+        take.append(meta);
+      }
+      card.append(take);
+    });
+    root.append(card);
+  }
+  document.getElementById("progress").textContent = total ? `${rated} / ${total} rated` : "Abhi koi engine output nahi hai — run.sh chalao";
+}
+
+function renderSummary() {
+  const box = document.getElementById("summary");
+  box.classList.toggle("hidden", !revealed);
+  if (!revealed) return;
+  const byEngine = Object.fromEntries(state.engines.map(e => [e.name, e]));
+  const rows = [];
+  for (const engine of state.engines.filter(e => !e.name.includes("@"))) {
+    const scores = Object.values(state.ratings[engine.name] || {});
+    const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+    const cers = Object.values(engine.check || {}).filter(c => !c.mixed_script).map(c => c.cer);
+    const cpu = byEngine[`${engine.engine}@cpu`];
+    const withSofia = byEngine[`${engine.engine}@sofia`];
+    rows.push({ engine, avg, n: scores.length, cer: cers.length ? cers.reduce((a, b) => a + b, 0) / cers.length : null, cpu, withSofia });
+  }
+  rows.sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1));
+  const table = document.getElementById("summary-table");
+  table.replaceChildren(el("tr", {}, ...["Engine", "Score", "CER", "RTF (GPU)", "RTF (CPU)", "Sofia ke saath", "VRAM", "Load", "Notes"].map(h => el("th", {}, h))));
+  for (const { engine, avg, n, cer, cpu, withSofia } of rows) {
+    const device = engine.device === "cpu" ? "CPU only" : `${engine.vram_mb ?? "–"} MB`;
+    table.append(el("tr", {},
+      el("td", {}, el("b", {}, engine.name)),
+      el("td", { class: "num" }, avg == null ? "–" : `${avg.toFixed(2)} (${n})`),
+      el("td", { class: "num" }, fmt(cer)),
+      el("td", { class: "num" }, engine.device === "cpu" ? "–" : fmt(engine.rtf)),
+      el("td", { class: "num" }, engine.device === "cpu" ? fmt(engine.rtf) : cpu ? (cpu.error ? "failed" : fmt(cpu.rtf)) : "–"),
+      el("td", { class: "num" }, engine.device === "cpu" ? "✓ (CPU)" : !withSofia ? "–"
+        : withSofia.error ? (withSofia.error.includes("out of memory") ? "✗ GPU full" : "failed")
+        : withSofia.notes?.swap ? `swap (+5s), RTF ${fmt(withSofia.rtf)}` : `✓ RTF ${fmt(withSofia.rtf)}`),
+      el("td", { class: "num" }, device),
+      el("td", { class: "num" }, engine.load_s == null ? "–" : `${engine.load_s}s`),
+      el("td", {}, engine.error ? el("span", { class: "err" }, engine.error) : (engine.notes?.model || ""))));
+  }
+}
+
+function render() {
+  document.getElementById("reveal").textContent = revealed ? "Naam chhupao" : "Naam dikhao";
+  renderLines(); renderSummary();
+}
+
+document.getElementById("reveal").addEventListener("click", () => { revealed = !revealed; render(); });
+fetch("/api/data").then(r => r.json()).then(data => {
+  state = data;
+  if (!data.ref) document.getElementById("ref-card").classList.add("hidden");
+  render();
+});
+</script>
+</body>
+</html>

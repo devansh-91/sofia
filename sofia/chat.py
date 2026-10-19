@@ -97,7 +97,9 @@ def reply(
     """
     history.append(_user_turn(text))
     del history[:-MAX_HISTORY_MESSAGES]
-    heard = f"[The user sounds {sounds}.]" if sounds != NEUTRAL else ""
+    # The emotion model was trained on acted speech and often hears "happy" in a flat or sad voice;
+    # stated plainly, the 4B model then said "glad to hear" to a wasted weekend.
+    heard = f"[Their tone of voice might be {sounds}, but that guess is often wrong: go by what they say.]" if sounds != NEUTRAL else ""
     # Notes ride only on the newest message, so they are never repeated in history.
     notes = situation.notes() if situation else []
     if looked is not None and CURRENT.search(text):
@@ -191,6 +193,7 @@ class Session:
         self.last_id = ""
         self.unreflected: list[dict] = []
         self.looked: list[str] = []  # what she looked up for the latest message
+        self.unremembered: tuple[str, str] | None = None  # (text, sounds) answered but not yet learned from
 
     @property
     def mood(self) -> str:
@@ -203,20 +206,33 @@ class Session:
 
         `sounds` is the mood heard in the user's voice, when they spoke rather than typed.
         """
+        self.answer(text, sounds)
+        return self.remember()
+
+    def answer(self, text: str, sounds: str = NEUTRAL) -> str:
+        """Her answer to `text`, before she learns from it, so she can start speaking it; call
+        `remember` before the next message. Its sounds fit the user's mood as last known."""
         self.language = detect(text, previous=self.language)
         self.turns += 1
         curious = (
             len(self.memory.items[FACTS]) < CURIOUS_BELOW_FACTS and self.turns % CURIOUS_EVERY_TURNS == 2
         )
-        previous, previous_id = self.last, self.last_id
         self.looked = []
         answer = reply(self.history, text, self.memory, curious, sounds, self.situation, self.looked)
-        # learn() keeps a praised reply as an example; the log records praise and criticism.
-        learned, reaction = self.memory.learn(text, self.language, previous, heard_mood=sounds)
-        # learn() has just read the user's mood: drop a sound that doesn't fit it.
         answer = self.history[-1]["content"] = fit_sounds(answer, self.mood)
+        self.unremembered = (text, sounds)
+        return answer
+
+    def remember(self) -> tuple[str, list[str]]:
+        """Learn from the message `answer` just answered and log the exchange: (answer, learned)."""
+        text, sounds = self.unremembered
+        self.unremembered = None
+        # learn() keeps a praised reply as an example; the log records praise and criticism.
+        learned, reaction = self.memory.learn(text, self.language, self.last, heard_mood=sounds)
+        # learn() has just read the user's mood: drop a sound that doesn't fit it.
+        answer = self.history[-1]["content"] = fit_sounds(self.history[-1]["content"], self.mood)
         if reaction != NONE:
-            self.log.feedback(previous_id, reaction)
+            self.log.feedback(self.last_id, reaction)
         self.last = {"user": text, "sofia": answer, "language": ENGLISH}
         self.last_id = self.log.turn(text, answer, self.language)
         self.situation.seen()

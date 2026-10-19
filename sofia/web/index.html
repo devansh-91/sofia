@@ -290,7 +290,7 @@ const callBox = document.getElementById("call"), callState = document.getElement
 const callHint = document.getElementById("callHint"), callMute = document.getElementById("callMute");
 const TICK = 50;           // ms between mic level checks
 const START_AFTER = 150;   // ms of voice before it counts as you talking
-const END_AFTER = 900;     // ms of quiet that ends what you said
+const END_AFTER = 750;     // ms of quiet that ends what you said
 const LONGEST = 30000;     // ms: send it anyway after this long
 const BARGE_AFTER = 300;   // ms of you talking over her before she stops
 const SILENT_MIC = 0.0003; // a level this low for the whole first seconds means the mic is muted or wrong

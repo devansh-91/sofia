@@ -16,6 +16,7 @@ import secrets
 import signal
 import tempfile
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -52,6 +53,7 @@ class Sofia:
         ollama.preload(MODEL)  # alongside the speech models, which take longer
         self.session = Session(Memory(), ConversationLog())
         self.lock = threading.Lock()  # one reply at a time: a single model, a single conversation
+        self.learned: list[str] = []  # learned from the latest message, after its answer went out
         self.replies: dict[str, threading.Event] = {}  # spoken pieces by name: set once rendered
         self.turn = 0  # a new reply stops the rest of the one before from being rendered
         self.audio_dir = Path(tempfile.mkdtemp(prefix="sofia-web-"))
@@ -118,18 +120,44 @@ class Sofia:
             return {"answer": greeting, "audio": self._spoken(greeting)} if greeting else {}
 
     def chat(self, text: str, sounds: str = NEUTRAL, device: str = "laptop") -> dict:
-        with self.lock:
+        """Her answer, with its audio already rendering. What she learns from the message (one more
+        model call) is worked out after that, while she speaks, and comes with the next answer."""
+        self.lock.acquire()
+        learning = False
+        try:
             self.session.situation.device = device
             result = self.session.command(text)
             if result is not None:
                 return {"command": result}
-            answer, learned = self.session.say(text, sounds)
-            return {"answer": answer, "learned": learned, "looked": self.session.looked, "mood": self.session.mood, "audio": self._spoken(answer)}
+            answer = self.session.answer(text, sounds)
+            learned, self.learned = self.learned, []
+            reply = {"answer": answer, "learned": learned, "looked": self.session.looked, "audio": self._spoken(answer)}
+            first = self.replies.get(reply["audio"][0]) if reply["audio"] else None
+            threading.Thread(target=self._remember, args=(first,), daemon=True).start()
+            learning = True
+            return reply
+        finally:
+            if not learning:
+                self.lock.release()
+
+    def _remember(self, first_piece: threading.Event | None) -> None:
+        """Learn from the latest message and let the next one in; holds the lock `chat` took.
+        It waits for her first spoken piece: the model and her voice share the GPU."""
+        try:
+            if first_piece:
+                first_piece.wait(timeout=15)
+            _, learned = self.session.remember()
+            self.learned += learned
+        except Exception as error:  # Ollama hiccup: the answer is out, only this lesson is lost
+            print(f"(Could not learn from that message: {type(error).__name__}: {error})", flush=True)
+        finally:
+            self.lock.release()
 
     def voice(self, upload: Path, device: str = "laptop") -> dict:
         from sofia import audio
         from sofia.voice import hear
 
+        started = time.monotonic()
         wav = audio.to_wav(upload)
         try:
             text, sounds = hear(wav)
@@ -137,7 +165,11 @@ class Sofia:
             wav.unlink(missing_ok=True)
         if not text:
             return {"heard": ""}
-        return {"heard": text, "sounds": sounds, **self.chat(text, sounds, device)}
+        heard = time.monotonic()
+        reply = self.chat(text, sounds, device)
+        # How long the user waits in a call, without what was said: the log stays private.
+        print(f"(voice turn: heard in {heard - started:.1f}s, answered in {time.monotonic() - heard:.1f}s)", flush=True)
+        return {"heard": text, "sounds": sounds, **reply}
 
 
 class Handler(BaseHTTPRequestHandler):

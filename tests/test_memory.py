@@ -1,10 +1,12 @@
 import tempfile
 import unittest
 from datetime import datetime
+from unittest import mock
 from pathlib import Path
 
 from sofia.lang import ENGLISH, HINGLISH
-from sofia.memory import _STANDING_RULE, BEHAVIOUR, EXAMPLES, FACTS, LIMITS, PREFERENCES, TAUGHT, Memory, has_real_dates, is_grounded
+from sofia import memory
+from sofia.memory import _STANDING_RULE, MOODS, BEHAVIOUR, EXAMPLES, FACTS, LIMITS, PREFERENCES, TAUGHT, Memory, has_real_dates, is_grounded
 
 
 class MemoryTest(unittest.TestCase):
@@ -156,6 +158,15 @@ class BehaviourTest(unittest.TestCase):
         self.assertFalse(self.memory._add_preference("call the user dev"))
         self.assertTrue(self.memory._add_preference("Keep replies short."))
         self.assertEqual(self.memory.items[PREFERENCES], ["Call the user Dev.", "Keep replies short."])
+
+    def test_their_words_beat_the_mood_heard_in_their_voice(self):
+        def heard(words_mood, voice_mood):
+            with mock.patch.object(memory, "extract", return_value=memory._found(mood=words_mood)):
+                self.memory.learn("Bad weekend, just wasted a lot of time", ENGLISH, heard_mood=voice_mood)
+            return self.memory.items[MOODS][-1]["mood"]
+
+        self.assertEqual(heard("sad", "happy"), "sad")
+        self.assertEqual(heard("neutral", "angry"), "angry")
 
     def test_forget_all_also_wipes_moods(self):
         self.record(12, "sad", 23)

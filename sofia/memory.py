@@ -429,8 +429,9 @@ class Memory:
                 learned.append(fact)
         learned += [item for item in found[TAUGHT] if self.add(TAUGHT, item)]
         learned += [item for item in found[PREFERENCES] if self._add_preference(item)]
-        # A mood heard in the user's voice beats one guessed from their words.
-        self.record_mood(heard_mood if heard_mood != NEUTRAL else found[MOOD], language)
+        # Their words beat the mood heard in their voice: the emotion model often hears "happy"
+        # in a flat or disappointed voice.
+        self.record_mood(found[MOOD] if found[MOOD] != NEUTRAL else heard_mood, language)
         if previous and found[FEEDBACK] == GOOD:
             self.add_example(**previous)
             learned.append(f'Reply you liked: "{previous["sofia"]}"')

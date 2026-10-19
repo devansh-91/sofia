@@ -16,7 +16,12 @@ _PROMPT = "Yeh ek Hinglish conversation hai. यह हिंदी और Engli
 _NOISE = {"", "you", "thank you.", "thanks for watching!", "धन्यवाद", "शुक्रिया"}
 _PROMPT_WORDS = set(re.findall(r"\w+", _PROMPT.lower()))
 
+# Telling Hindi from English is left to the tiny model: on the CPU the small one spends ~1.2 s on
+# it, a full pass of its own, before transcribing; tiny takes ~0.1 s.
+DETECT_SIZE = os.environ.get("SOFIA_STT_DETECT_MODEL", "tiny")
+
 _model = None
+_detector = None
 
 
 def _load():
@@ -25,7 +30,18 @@ def _load():
         from faster_whisper import WhisperModel
 
         _model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=THREADS)
+        _language_model()
     return _model
+
+
+def _language_model():
+    global _detector
+    if _detector is None:
+        from faster_whisper import WhisperModel
+
+        _detector = _load() if DETECT_SIZE == MODEL_SIZE else WhisperModel(
+            DETECT_SIZE, device="cpu", compute_type="int8", cpu_threads=THREADS)
+    return _detector
 
 
 def transcribe(wav: Path) -> str:
@@ -37,7 +53,7 @@ def transcribe(wav: Path) -> str:
     model = _load()
     # Choose between Hindi and English only: left to itself Whisper guesses Urdu, Punjabi
     # or Nepali for Hinglish, and the Hinglish prompt would drag real English into Hindi.
-    _, _, probabilities = model.detect_language(samples)
+    _, _, probabilities = _language_model().detect_language(samples)
     chances = dict(probabilities)
     language = "en" if chances.get("en", 0) > chances.get("hi", 0) else "hi"
     segments, _ = model.transcribe(

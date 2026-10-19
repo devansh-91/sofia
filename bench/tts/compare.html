@@ -56,7 +56,8 @@
 <main>
   <h1>Sofia Voice Bench</h1>
   <p class="muted">Har line ke saare versions suno aur 1–5 do (5 = bilkul insaan jaisa, 1 = robot).
-    Naam chhupe hain taaki bias na ho. Sab rate karne ke baad <b>Naam dikhao</b> dabao.
+    Naam chhupe hain taaki bias na ho, par har letter poore page pe ek hi awaaz hai (A har line pe wahi A).
+    Sab rate karne ke baad <b>Naam dikhao</b> dabao.
     Saari lines rate karna zaroori nahi — 4–5 lines bhi kaafi hain.</p>
 
   <div class="bar">
@@ -106,13 +107,14 @@ function listening() { return state.engines.filter(e => !e.name.includes("@") &&
 
 function renderLines() {
   const root = document.getElementById("lines"); root.replaceChildren();
-  const engines = listening();
+  // One fixed letter per voice across every line, so "E" always means the same voice.
+  const engines = shuffled(listening(), hash("voices"));
   let rated = 0, total = 0;
   for (const line of state.lines) {
     const card = el("div", { class: "card" },
       el("div", {}, el("span", { class: "mood" }, line.mood), el("span", { class: "muted" }, line.id)),
       el("div", { class: "text" }, line.text.replace("{laugh}", "😄").replace("{sigh}", "😮‍💨")));
-    shuffled(engines, hash(line.id)).forEach((engine, i) => {
+    engines.forEach((engine, i) => {
       const score = state.ratings[engine.name]?.[line.id];
       total++; if (score) rated++;
       const result = (engine.lines || []).find(r => r.id === line.id) || {};

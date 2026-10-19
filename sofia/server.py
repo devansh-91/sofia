@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import secrets
+import signal
 import tempfile
 import threading
 from http import HTTPStatus
@@ -175,6 +176,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-speech", action="store_true", help="text only, even if speech libraries are installed")
     arguments = parser.parse_args()
+    # Started in the background (the app launcher does that), SIGINT arrives ignored, but it is how
+    # the launcher stops her when her window closes.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
 
     Handler.key = access_key()
     Handler.sofia = Sofia(speech=not arguments.no_speech)

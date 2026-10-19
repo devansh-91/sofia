@@ -227,10 +227,10 @@ def web_search(query: str) -> str:
     for result in results[:2]:
         url = result.split(" — ", 1)[1].split("\n", 1)[0]
         try:
-            page = read_webpage(url)
+            page = _page_text(url)
         except Exception:  # paywalls, timeouts: try the next one
             continue
-        return found[:500] + f"\n\nFrom the top page ({url}):\n{page[:TOP_PAGE]}"
+        return found[:500] + f"\n\nFrom the top page ({url}):\n{relevant(page, query, TOP_PAGE)}"
     return _short(found)
 
 
@@ -255,7 +255,7 @@ def weather(place: str) -> str:
             f"wind {now['wind_speed_10m']:.0f} km/h. " + ". ".join(days) + ".")
 
 
-def read_webpage(url: str) -> str:
+def _page_text(url: str) -> str:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     markup = _fetch(url)
@@ -264,7 +264,25 @@ def read_webpage(url: str) -> str:
         if found := re.search(rf"(?is)<{tag}\b.*?</{tag}>", markup):
             markup = found.group(0)
             break
-    return _short(_text(re.sub(r"(?is)<(nav|header|footer|aside|form)\b.*?</\1>", " ", markup)))
+    return _text(re.sub(r"(?is)<(nav|header|footer|aside|form)\b.*?</\1>", " ", markup))
+
+
+def relevant(text: str, query: str, size: int) -> str:
+    """The `size` characters of a page that match `query` best: the most of its words, and
+    amounts, since the question is usually a price or a score. Most pages start with menus."""
+    words = set(re.findall(r"[a-z]{4,}", query.lower()))
+    best, best_score = 0, -1
+    for start in range(0, max(1, len(text) - size + 1), size // 3):
+        window = text[start:start + size].lower()
+        amounts = len(re.findall(r"(?:₹|rs\.?|\$|inr|usd)\s?\d|\d[\d,.]{2,}", window))
+        score = sum(word in window for word in words) + 2 * min(3, amounts)
+        if score > best_score:
+            best, best_score = start, score
+    return text[best:best + size]
+
+
+def read_webpage(url: str) -> str:
+    return _short(_page_text(url))
 
 
 # --- what the model sees -------------------------------------------------------------------------

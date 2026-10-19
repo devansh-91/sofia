@@ -62,6 +62,10 @@ class WebTest(unittest.TestCase):
         self.assertEqual(tools.brave_results(BRAVE_PAGE),
                          ["Gold Rate Today — https://example.com/gold\n24K gold is ₹14,804 a gram."])
 
+    def test_relevant_skips_the_menus(self):
+        page = "Home News Sports Business Login " * 20 + "Petrol price in Delhi today is Rs 94.77 per litre." + " Footer" * 50
+        self.assertIn("94.77", tools.relevant(page, "petrol price delhi today", 120))
+
     def test_headlines_newest_first_with_age(self):
         now = datetime(2026, 10, 19, 11, 0, tzinfo=timezone.utc)
         self.assertEqual(tools.headlines(FEED, now),

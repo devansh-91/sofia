@@ -238,6 +238,7 @@ Three things keep the 4B model from making answers up:
 - A question about the news, prices, the weather or your files gets a note telling her to look first.
   If she answers without looking anyway, she is sent back once.
 - A web search also reads the top result's page, because snippets seldom hold the number asked for.
+  It passes on the part of that page that best matches the question, since most pages start with menus.
 - If her answer has a number that is in nothing she looked up, she gets one more try and is told
   which numbers those are.
 
@@ -245,7 +246,9 @@ In tests she then said "I couldn't find the exact rate just now" instead of inve
 A lookup adds ~2–6 s to a reply.
 
 **Web search** goes to a private SearXNG on this laptop when one is running. Start it with
-`./scripts/searxng.sh`; it needs Docker and pulls a few hundred MB once. Without SearXNG she uses
+`./scripts/searxng.sh`; it needs Docker and pulls a few hundred MB once. Through it, Google and Brave
+answer in under a second; she then said "West Indies won by 5 wickets" and "Petrol in Delhi is ₹102.12
+per litre", both matching the source pages. Without SearXNG she uses
 Brave Search's web page, which blocks scripts after a few searches in a row. While Brave is blocking,
 she falls back to news headlines and Wikipedia, and says when they don't hold the answer. DuckDuckGo,
 Mojeek and Ecosia show scripts a captcha, and Bing returns unrelated results to them, so they aren't

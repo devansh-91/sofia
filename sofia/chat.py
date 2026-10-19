@@ -53,7 +53,7 @@ CURRENT = re.compile(
 )
 LOOK_IT_UP = ("[This needs current information: look it up with your tools before answering (news for news, "
               "scores and results; weather for the weather). If the results don't answer it, try other words. "
-              "Never guess.]")
+              "Say only what the results say, with no added details. Never guess.]")
 # Questions about the user's files, which it otherwise answers with "let me check" and no check.
 FILES = re.compile(r"\b(folders?|files?|downloads|documents|desktop|pictures|photos|pdfs?|resume|cv)\b", re.I)
 LOOK_IN_FILES = "[Look in the user's files with your tools before answering. Never guess.]"

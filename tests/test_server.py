@@ -9,6 +9,9 @@ from tempfile import TemporaryDirectory
 
 from sofia.memory import MOOD_NAMES
 from sofia.server import Handler
+from unittest import mock
+
+from sofia import tts
 from sofia.tts import STYLES, pieces
 
 
@@ -105,6 +108,13 @@ class ServerTest(unittest.TestCase):
 class VoiceStyleTest(unittest.TestCase):
     def test_every_mood_has_a_voice_style(self):
         self.assertEqual(set(STYLES), set(MOOD_NAMES))
+
+    def test_changing_a_style_makes_a_new_clone(self):
+        before = tts.turbo_voice(style="soft")
+        line, pace, pitch, tone, gain = tts.TURBO_STYLES["soft"]
+        with mock.patch.dict(tts.TURBO_STYLES, {"soft": (line, pace, pitch - 1, tone, gain)}):
+            self.assertNotEqual(tts.turbo_voice(style="soft"), before)
+        self.assertEqual(tts.turbo_voice(style="warm").name, f"turbo-{tts.VOICE}.pt")
 
     def test_reply_is_spoken_in_pieces_at_sentence_ends(self):
         self.assertEqual(pieces("Hi, sir!"), ["Hi, sir!"])

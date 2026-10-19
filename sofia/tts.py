@@ -11,6 +11,7 @@ Kokoro-82M (ONNX, CPU) is always loaded too: it speaks when Turbo is not install
 only in her pace. Voice names starting with "a" are American English, "b" British;
 SOFIA_VOICE=turbo picks Turbo's own built-in voice instead of a clone.
 """
+import hashlib
 import json
 import os
 import re
@@ -46,20 +47,25 @@ STYLES = {
     "neutral": ("warm", 1.0),
 }
 
-# Each style as Turbo speaks it: (line, pace) Kokoro reads for Turbo to clone (`clone`); lines are
-# over 5 seconds, which cloning needs. Turbo copies the pace only in part. Measured against warm:
-# soft ~12% slower, calm ~6% slower, bright and playful ~5% faster, bright with a livelier pitch.
+# Each style as Turbo speaks it: (line, pace, pitch, tone, gain) for `clone`. Kokoro reads the line
+# at that pace (over 5 seconds, which cloning needs), then its pitch is shifted (semitones), its top
+# end raised or cut (tone, dB above 3 kHz) and its level changed (gain, dB) before Turbo clones it.
+# Turbo copies pace only in part, but copies pitch and tone, and more than it is given. Kokoro read
+# at different paces alone gave five clones with the same pitch (187-201 Hz) and timbre; with these,
+# measured over two lines each: soft ~1 semitone lower and darker, calm a little lower and darker,
+# bright and playful higher, brighter and with more pitch movement, all still 0.87-0.94 similar to
+# warm (speaker embeddings). Bigger shifts came out exaggerated: +2 semitones gave +5.
 TURBO_STYLES = {
     "warm": ("Good evening, sir. I was just thinking about you, actually. So tell me, how was your day? "
-             "I hope it wasn't too long, because I really want to hear everything.", 1.0),
+             "I hope it wasn't too long, because I really want to hear everything.", 1.0, 0, 0, 0),
     "soft": ("Hey, sir. I'm right here with you. Take your time, there's no rush at all. "
-             "Whatever happened today, we can talk about it slowly, together.", 0.8),
+             "Whatever happened today, we can talk about it slowly, together.", 0.76, -1.2, -4, -2),
     "calm": ("Okay, sir, let's slow down for a second. Breathe with me. "
-             "We'll sort this out one small step at a time, and it's going to be fine.", 0.92),
+             "We'll sort this out one small step at a time, and it's going to be fine.", 0.89, -0.6, -2, -1),
     "bright": ("Oh, sir, that's wonderful news! I'm so happy for you, honestly. "
-               "Tell me everything, I want to hear every single detail right now!", 1.12),
+               "Tell me everything, I want to hear every single detail right now!", 1.15, 1.6, 3, 1),
     "playful": ("Hmm, sir... is there something you're not telling me? Come on, I can always tell "
-                "when you're up to something. Go on then, spill it, I'm all ears.", 1.05),
+                "when you're up to something. Go on then, spill it, I'm all ears.", 1.05, 0.8, 2, 0),
 }
 
 _kokoro = None
@@ -67,8 +73,12 @@ _turbo = None
 
 
 def turbo_voice(voice: str = VOICE, style: str = "warm") -> Path:
-    """Where Turbo's clone of a Kokoro voice in one style is kept."""
-    return VOICE_DIR / (f"turbo-{voice}.pt" if style == "warm" else f"turbo-{voice}-{style}.pt")
+    """Where Turbo's clone of a Kokoro voice in one style is kept. Its name carries the style's
+    settings, so changing them makes a new clone instead of reusing the old one."""
+    if style == "warm":
+        return VOICE_DIR / f"turbo-{voice}.pt"
+    settings = hashlib.sha1(repr(TURBO_STYLES[style]).encode()).hexdigest()[:6]
+    return VOICE_DIR / f"turbo-{voice}-{style}-{settings}.pt"
 
 
 def turbo_voices() -> dict[str, Path | str]:
@@ -150,8 +160,13 @@ def _kokoro_model():
 
 
 def _load():
-    """Load Kokoro and start Turbo when it is installed and wanted."""
+    """Load Kokoro and start Turbo when it is installed and wanted, making any style clone it lacks
+    first (on the CPU, ~10 s each, after a change to TURBO_STYLES)."""
     global _turbo
+    if ENGINE == "turbo" and _turbo is None and TURBO_PYTHON.exists() and VOICE != "turbo":
+        if any(not turbo_voice(style=style).exists() for style in TURBO_STYLES):
+            print("Making her voice styles (once)...", flush=True)
+            clone()
     voices = turbo_voices()
     if ENGINE == "turbo" and _turbo is None and TURBO_PYTHON.exists() and "warm" in voices:
         _turbo = Turbo(voices)
@@ -221,13 +236,13 @@ FILLER_DIR = VOICE_DIR / "fillers"
 
 def fillers() -> dict[str, list[Path]]:
     """Her fillers in each style, rendered once in the voice she speaks with and kept on disk."""
-    engine = "turbo" if _turbo else "kokoro"
     found: dict[str, list[Path]] = {}
     for style, speed in sorted(set(STYLES.values())):
         found[style] = []
         for line in FILLERS:
             slug = re.sub(r"\W+", "-", line.lower()).strip("-")
-            path = FILLER_DIR / f"{engine}-{VOICE}-{style}-{slug}.wav"
+            voice = turbo_voice(style=style).stem if _turbo else f"kokoro-{KOKORO_VOICE}-{style}"
+            path = FILLER_DIR / f"{voice}-{slug}.wav"  # a new clone of a style gets new fillers
             if not path.exists():
                 FILLER_DIR.mkdir(parents=True, exist_ok=True)
                 rendered = audio.temporary_wav()
@@ -250,8 +265,14 @@ def clone(voice: str = VOICE) -> list[Path]:
     try:
         pairs = []
         for style, reference in references.items():
-            line, speed = TURBO_STYLES[style]
+            line, speed, pitch, tone, gain = TURBO_STYLES[style]
             kokoro(line, reference, speed, voice)
+            if pitch or tone or gain:
+                shaped = audio.temporary_wav()
+                subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(reference), "-af",
+                                f"rubberband=pitch={2 ** (pitch / 12):.5f},highshelf=f=3000:g={tone},volume={gain}dB",
+                                str(shaped)], check=True)
+                shaped.replace(reference)
             pairs += [str(reference), str(missing[style])]
         if pairs:
             with TURBO_LOG.open("ab") as log:

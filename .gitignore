@@ -33,3 +33,6 @@ pnpm-debug.log*
 # Logs / misc
 *.log
 .cache/
+
+# Fine-tuning output (training/build.py writes it under ~/.local/share/sofia)
+training/data/

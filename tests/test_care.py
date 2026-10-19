@@ -20,7 +20,7 @@ class CareTest(unittest.TestCase):
         self.assertEqual(spelled("Call Tele-MANANS or tele manan"), "Call Tele-MANAS or Tele-MANAS")
 
     def test_ordinary_messages_bring_none(self):
-        self.assertEqual(notes("What's the weather in Gorakhpur?"), ([], False))
+        self.assertEqual(notes("What's the weather in Delhi?"), ([], False))
         self.assertEqual(notes("I killed it at the gym today"), ([], False))
 
 

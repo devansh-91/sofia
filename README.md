@@ -109,9 +109,12 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
 
 - **Doing in normal mode:** changes (files, commands) are only offered in work mode, behind an Allow
   button. Her 4B model in normal mode only looks.
-- **Emotional TTS:** Turbo has no emotion or pace setting. Her tone for your mood comes from five
-  clones of her voice read at different paces (see "Her voice" below), plus her words and sounds;
-  the clones change pace and liveliness, not a sad or happy timbre. `bench/tts` compares voices by ear.
+- **Emotional TTS:** Turbo has no emotion setting. Her tone for your mood comes from five clones of
+  her voice whose references differ in pace, pitch and tone (see "Her voice" below), plus her words
+  and sounds. Whether they sound sad or happy enough is for the ear: `bench/tts` has the old and new
+  clones side by side (sofia-moods-old / sofia-moods-new).
+- **Fine-tuning:** the pipeline works up to the data (see "Fine-tuning" below); whether the tuned
+  model beats the prompted one is still to be measured.
 - **SER for Hinglish:** the current model is trained on acted English and is unverified on real
   Hinglish speech; emotion2vec is the likely replacement.
 
@@ -263,6 +266,14 @@ The 7B model has habits the code works around: it writes tool calls as JSON text
 says "I've proposed it" without proposing (sent back once to do it), and retells a command's output
 from memory (her answer shows the real output instead).
 
+**Feelings, relationships, a crisis** (`sofia/care.py`): when a message touches mental health,
+relationships or emotional intelligence, a note with a counsellor's tools rides on it: hear the
+feeling first, then one tool that fits (slow breathing, grounding, checking the worst thought,
+"I feel ... when ...", naming the feeling under anger). She is a friend with those skills, not a
+psychiatrist: no diagnoses, no medicine, and a counsellor or Tele-MANAS when it has gone on long.
+Words of self-harm or suicide override everything: no jokes, sounds or possessiveness, she asks
+whether you are safe, and the page shows Tele-MANAS (14416, free, 24x7, Hindi and English) and 112.
+
 **Web search** goes to a private SearXNG on this laptop when one is running. Start it with
 `./scripts/searxng.sh`; it needs Docker and pulls a few hundred MB once. Through it, Google and Brave
 answer in under a second; she then said "West Indies won by 5 wickets" and "Petrol in Delhi is ₹102.12
@@ -353,10 +364,12 @@ reply → Chatterbox-Turbo in the style for your mood, sounds included (or Kokor
   VRAM, about 4x faster than real time) laughs or sighs where her reply has a sound tag. Its style
   follows your mood: soft when you are sad, lonely or tired (~12% slower); calm when you are
   stressed, anxious or angry (~6% slower); bright when you are happy (~5% quicker, livelier pitch);
-  playful when you are bored. Turbo has no style setting but copies the pace of the voice it
-  clones, so each style is its own clone, of Kokoro reading a fitting line at a fitting pace
-  (`TURBO_STYLES` in `sofia/tts.py`). When Turbo is not installed or fails, Kokoro speaks instead,
-  in the same styles by pace alone.
+  playful when you are bored. Turbo has no style setting but copies the pace, pitch and tone of
+  the voice it clones, so each style is its own clone, of Kokoro reading a fitting line at a fitting
+  pace, pitch-shifted and with its top end raised or cut (`TURBO_STYLES` in `sofia/tts.py`). Pace
+  alone gave five clones with the same pitch and timbre; now soft is ~1 semitone lower and darker,
+  bright and playful ~2 higher and brighter, all 0.87-0.94 similar to warm. When Turbo is not
+  installed or fails, Kokoro speaks instead, in the same styles by pace alone.
 - **Start-up:** the LLM loads while the speech models do, so her first reply takes ~5 s instead of
   ~20 s. It stays in VRAM for an hour after her last reply (`SOFIA_KEEP_ALIVE`; Ollama's default
   of 5 minutes made the next reply after a pause wait for it) and is unloaded when she stops.
@@ -386,6 +399,29 @@ sudo tailscale serve --bg 8765        # https://<laptop>.<tailnet>.ts.net → th
 Then open `https://<laptop>.<tailnet>.ts.net/?key=<access key>` on the phone. Without https
 (e.g. `./scripts/sofia.sh serve --host 0.0.0.0` on home Wi-Fi) text chat and her voice still work,
 but the mic button stays hidden.
+
+## Fine-tuning
+
+`./scripts/finetune.sh` tunes her on this laptop, in four steps:
+
+1. **Data** (`training/build.py`): the dialogues in `training/dialogues/*.jsonl`, the ones about your
+   own life in `~/.local/share/sofia/training/dialogues` (kept out of this public repo), and every
+   exchange you liked (`/good`) or corrected (`/say`). Each becomes a chat in exactly the shape she
+   sees at run time: her system prompt, what she knows about you from her memory, the bracketed
+   notes and care notes. The few-shot examples are left out: the tuning replaces them.
+2. **Training** (`training/train.py`): a QLoRA (4-bit, rank 16) on Qwen/Qwen3.5-4B, on the MLP and
+   attention-output layers only, with the loss on her replies only. It needs the GPU, so Sofia must
+   be stopped.
+3. **Merge** (`training/merge.py`): HauhauCS's uncensored model, which Sofia runs on, is only
+   published as GGUF, so the LoRA is added to its BF16 GGUF tensor by tensor. Every tensor is first
+   checked against the official one it was trained on. Ollama then quantizes it to Q4_K_M as
+   `sofia-tuned-base`, and `sofia-tuned` is her persona on top of it.
+4. **Compare** (`training/compare.py`): `sofia` and `sofia-tuned` side by side on held-out messages.
+
+Try the tuned one with `SOFIA_MODEL=sofia-tuned SOFIA_BASE_MODEL=sofia-tuned-base ./scripts/sofia.sh`.
+
+A ChatGPT data export can feed both her memory and the training: `training/chatgpt.py export.zip`
+pulls out the messages you wrote (ChatGPT's replies are left out, they are not how she talks).
 
 ## License
 

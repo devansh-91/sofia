@@ -32,9 +32,12 @@ def _words(*patterns: str) -> re.Pattern:
 CRISIS = Module(
     "crisis",
     _words(r"suicid", r"kill (?:my ?self|myself)", r"end (?:my|it all)", r"don'?t want to (?:live|be alive|exist)",
-           r"no (?:reason|point) (?:to|in) liv", r"better off dead", r"self[- ]?harm", r"hurt(?:ing)? myself",
+           r"no (?:reason|point) (?:to|in) liv", r"better off dead", r"(?:everyone|everybody|people|they|family|world)\b.{0,25}better off without me",
+           r"want(?:ed)? to die", r"wish i (?:was|were) (?:dead|never born)",
+           r"(?:nobody|no one|no-one) would (?:even )?(?:notice|care|miss)(?: it)? (?:if i|me\b|that i)",
+           r"(?:if i|i want to|i wanna|i could just) (?:disappeared|disappear|vanish(?:ed)?)\b(?! for| to| from)", r"self[- ]?harm", r"hurt(?:ing)? myself",
            r"cut(?:ting)? myself", r"mar(?:na| jaun| jaana) (?:hai|chahta|chahti)", r"jeena nahi", r"jeene ka (?:mann|man) nahi",
-           r"khud ?kushi", r"aatmahatya", r"khatam kar (?:du|dunga|lunga) (?:khud|apne)"),
+           r"khud ?kushi", r"aatmahatya", r"mar jana chahta", r"gayab ho jau", r"khatam kar (?:du|dunga|lunga) (?:khud|apne)"),
     "[This may be about self-harm or suicide. Drop every joke, sound and bit of possessiveness. Stay calm and warm, "
     "take it completely seriously, and don't lecture. Ask gently whether they are safe right now. Tell them you want them "
     "to talk to someone who can really help tonight: Tele-MANAS, free and 24x7 on 14416, or 112 in an emergency, and "
@@ -77,6 +80,17 @@ MODULES = [
         "not with others; confidence grows from small kept promises to yourself. Be warm and real, not preachy.]",
     ),
 ]
+
+
+# Said after her answer to words of self-harm whenever she left out the helpline herself: a model
+# can fail this one (the tuned one once said "let's not talk about it right now"), so it never
+# depends on one.
+SAFETY_LINE = ("Please call Tele-MANAS on 14416 right now, sir, it's free and they're there all night, "
+               "or 112 if you're in danger. Are you safe at this moment?")
+
+
+def needs_safety_line(answer: str) -> bool:
+    return "14416" not in answer
 
 
 _TELE_MANAS = re.compile(r"\btele[- ]?mana\w*", re.I)

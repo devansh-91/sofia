@@ -41,5 +41,18 @@ class StreamerTest(unittest.TestCase):
         self.assertFalse(stream.answered)
 
 
+class MoodForTest(unittest.TestCase):
+    def test_words_of_a_bad_moment_count_as_sad_until_learned(self):
+        from unittest import mock
+        from sofia.chat import Session
+
+        session = Session.__new__(Session)
+        with mock.patch.object(Session, "mood", new_callable=mock.PropertyMock, return_value="neutral"):
+            self.assertEqual(session.mood_for("bad weekend, I wasted it and I'm disappointed"), "sad")
+            self.assertEqual(session.mood_for("I got the job!"), "neutral")
+        with mock.patch.object(Session, "mood", new_callable=mock.PropertyMock, return_value="angry"):
+            self.assertEqual(session.mood_for("I hate my roommate"), "angry")
+
+
 if __name__ == "__main__":
     unittest.main()

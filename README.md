@@ -113,8 +113,9 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
   her voice whose references differ in pace, pitch and tone (see "Her voice" below), plus her words
   and sounds. Whether they sound sad or happy enough is for the ear: `bench/tts` has the old and new
   clones side by side (sofia-moods-old / sofia-moods-new).
-- **Fine-tuning:** the pipeline works up to the data (see "Fine-tuning" below); whether the tuned
-  model beats the prompted one is still to be measured.
+- **Fine-tuning:** the tuned brain is the default since 2026-10-20. On 30 unseen messages it answered
+  in 93 characters on average (original 221), said "sir" 30/30 (23/30), ran over 3 sentences once (8),
+  in half the time; held-out loss 2.53 -> 1.93. More dialogues (and the ChatGPT export) will improve it.
 - **SER for Hinglish:** the current model is trained on acted English and is unverified on real
   Hinglish speech; emotion2vec is the likely replacement.
 

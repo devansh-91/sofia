@@ -98,11 +98,11 @@ class Sofia:
 
         return tts.STYLES.get(self.session.mood, tts.STYLES["neutral"])[0] if self.speech else None
 
-    def _voice(self, wait: bool = True) -> "Voice":
+    def _voice(self, wait: bool = True, mood: str | None = None) -> "Voice":
         """A reply's spoken pieces, rendered one after another in the background as they are added,
         possibly while the model is still writing the rest."""
         self.turn += 1
-        return Voice(self, self.turn, self.session.mood, wait)
+        return Voice(self, self.turn, mood or self.session.mood, wait)
 
     def _spoken(self, answer: str, wait: bool = True) -> list[str] | None:
         """Render `answer` to audio, a piece at a time in the background; return the names the
@@ -309,7 +309,7 @@ class Sofia:
             if result is not None:
                 return {"command": result}
             # Her voice starts on the first sentence while the model writes the rest.
-            voice = self._voice() if self.speech else None
+            voice = self._voice(mood=self.session.mood_for(text)) if self.speech else None
             try:
                 answer = self.session.answer(text, sounds, emit=voice.add if voice else None)
                 if voice and not voice.names:  # nothing was streamed (a lookup, or a slip into Hinglish)

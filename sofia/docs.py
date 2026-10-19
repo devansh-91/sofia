@@ -18,7 +18,7 @@ from pathlib import Path
 from sofia import ollama
 
 FOLDER = Path(os.environ.get("SOFIA_DOCS", "~/sofia-docs")).expanduser()
-INDEX = Path("~/.local/share/sofia/docs-index.json").expanduser()
+INDEX = Path(os.environ.get("SOFIA_DOCS_INDEX", "~/.local/share/sofia/docs-index.json")).expanduser()
 MODEL = os.environ.get("SOFIA_EMBED_MODEL", "nomic-embed-text")
 PASSAGE = 900  # characters
 OVERLAP = 150

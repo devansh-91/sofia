@@ -199,6 +199,13 @@ def _answer(messages: list[dict], looked: list[str] | None = None, must_look: bo
     return polish(answer)
 
 
+# Words of a bad moment. The mood learn() reads from a message comes after her answer is spoken, so
+# until then a message like this one counts as sad for her sounds and the style of her voice: she
+# laughed at "I wasted my weekend and I'm disappointed".
+LOW = re.compile(r"\b(wasted|disappoint\w*|sad|upset|depress\w*|lonely|alone|hurt\w*|cry\w*|angry|annoy\w*|stress\w*|"
+                 r"tired|exhausted|worst|hate|fail\w*|lost|broke up|breakup|sick|ill|died|passed away|scared|"
+                 r"anxious|worried|nervous|terrible|awful|bura|udaas|dukh|pareshaan|tension|rona)\b", re.I)
+
 _SENTENCE_END = re.compile(r"[.!?…](?=\s)")
 
 
@@ -289,6 +296,10 @@ class Session:
         moods = self.memory.items[MOODS]
         return moods[-1]["mood"] if moods else NEUTRAL
 
+    def mood_for(self, text: str) -> str:
+        """The mood her answer to `text` is spoken in, before learn() has read the new one."""
+        return "sad" if LOW.search(text) and self.mood in (NEUTRAL, "happy", "bored") else self.mood
+
     def say(self, text: str, sounds: str = NEUTRAL) -> tuple[str, list[str]]:
         """Answer `text`; return (answer, things she learned from it).
 
@@ -308,14 +319,21 @@ class Session:
         self.looked = []
         self.crisis = care.notes(text)[1]
         # With `emit`, each piece of the answer goes to her voice as soon as it is written.
-        stream = Streamer(emit, self.mood, self.crisis) if emit else None
+        mood = self.mood_for(text)
+        stream = Streamer(emit, mood, self.crisis) if emit else None
         answer = reply(self.history, text, self.memory, curious, sounds, self.situation, self.looked, stream)
         if stream and stream.answered:
+            if self.crisis and care.needs_safety_line(answer):
+                stream.feed(" " + care.SAFETY_LINE)
+                stream.finish()
+                answer = stream.text
             self.history[-1]["content"] = answer
         else:
             # No laugh or sigh in an answer about self-harm, whatever the model wrote.
             answer = care.spelled(answer)
-            answer = without_sounds(answer) if self.crisis else fit_sounds(answer, self.mood)
+            answer = without_sounds(answer) if self.crisis else fit_sounds(answer, mood)
+            if self.crisis and care.needs_safety_line(answer):
+                answer = f"{answer} {care.SAFETY_LINE}"
             if stream and stream.pieces:  # it talked before looking something up: the answer follows
                 stream.buffer = ""
                 stream.feed(" " + answer)

@@ -25,7 +25,7 @@ def hear(wav: Path) -> tuple[str, str]:
 def respond(session: Session, text: str, sounds: str = NEUTRAL) -> tuple[str, list[str], Path, str]:
     """Answer `text` and render the answer as speech: (answer, learned, wav, voice style)."""
     answer, learned = session.say(text, sounds)
-    wav, style = tts.speak(answer, session.language, session.mood)
+    wav, style = tts.speak(answer, session.mood)
     return answer, learned, wav, style
 
 
@@ -64,12 +64,12 @@ def main() -> None:
         answer, learned, wav, style = respond(session, text, sounds)
         print(f"sofia ({style})> {answer}")
         for item in learned:
-            print(f"  (yaad rakha: {item})")
+            print(f"  (remembered: {item})")
         print()
         audio.play(wav)
         wav.unlink(missing_ok=True)
     for item in session.reflect():
-        print(f"  (yaad rakha: {item})")
+        print(f"  (remembered: {item})")
 
 
 if __name__ == "__main__":

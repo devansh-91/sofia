@@ -1,7 +1,7 @@
 """python3 -m unittest discover tests"""
 import unittest
 
-from sofia.lang import ENGLISH, HINGLISH, detect, with_reply_instruction
+from sofia.lang import ENGLISH, HINGLISH, detect
 
 
 class DetectTest(unittest.TestCase):
@@ -38,12 +38,6 @@ class DetectTest(unittest.TestCase):
         for text in ["haha ok", "hmm", "lol", "?"]:
             self.assertEqual(detect(text, previous=ENGLISH), ENGLISH, text)
             self.assertEqual(detect(text, previous=HINGLISH), HINGLISH, text)
-
-    def test_reply_instruction_is_appended(self):
-        self.assertEqual(
-            with_reply_instruction("hello there friend", ENGLISH),
-            "hello there friend\n[Reply only in casual English.]",
-        )
 
 
 if __name__ == "__main__":

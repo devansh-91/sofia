@@ -19,13 +19,11 @@ import soundfile as sf
 HERE = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("SOFIA_BENCH_DIR", "~/.local/share/sofia/tts-bench")).expanduser()
 OUT = DATA / "out"
-REF_DIR = DATA / "ref"
-
-# The shared voice every cloning engine copies, so the comparison is about delivery, not timbre.
-REF_TEXT = "नमस्ते, मैं सोफ़िया हूँ। आज मौसम बहुत अच्छा है, तो सोचा थोड़ी देर तुझसे बात कर लूँ।"
 
 # Anything an engine wants to report alongside its numbers (which checkpoint it ended up using, etc.).
 notes: dict = {}
+# The parsed command line, for engines that take a --voice.
+args: argparse.Namespace | None = None
 
 
 def lines(only: str | None = None) -> list[dict]:
@@ -36,16 +34,9 @@ def lines(only: str | None = None) -> list[dict]:
     return [line for line in every if line["id"] in wanted]
 
 
-def fill(text: str, laugh: str = "हाहा,", sigh: str = "") -> str:
+def fill(text: str, laugh: str = "Haha!", sigh: str = "") -> str:
     """Render the {laugh} / {sigh} markers the way this engine can say them."""
     return " ".join(text.replace("{laugh}", laugh).replace("{sigh}", sigh).split())
-
-
-def reference() -> tuple[Path, str]:
-    wav = REF_DIR / "ref.wav"
-    if not wav.exists():
-        raise SystemExit(f"{wav} is missing: run the svara engine with --make-ref first (run.sh does this)")
-    return wav, (REF_DIR / "ref.txt").read_text().strip()
 
 
 class GpuMemory:
@@ -89,8 +80,12 @@ def run(engine: str, load, synth, default_device: str = "cuda") -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default=default_device)
     parser.add_argument("--only", help="comma-separated line ids")
+    parser.add_argument("--voice", help="which of the engine's voices (or variants) to use; saved as <engine>-<voice>")
     parser.add_argument("--tag", help="save as <engine>@<tag> (default: the device, if not the usual one)")
+    global args
     args = parser.parse_args()
+    if args.voice:
+        engine = f"{engine}-{args.voice}"
     tag = args.tag or (args.device if args.device != default_device else None)
     name = f"{engine}@{tag}" if tag else engine
     out = OUT / name
@@ -103,7 +98,7 @@ def run(engine: str, load, synth, default_device: str = "cuda") -> None:
         todo = lines(args.only)
         # The first call pays for compilation and caches; Sofia keeps the model warm, so time warm calls.
         synth(model, todo[0])
-    except BaseException as error:  # SystemExit too: a missing reference must still show up on the page
+    except BaseException as error:  # SystemExit too: a failed load must still show up on the page
         gpu.stop()
         traceback.print_exc()
         _save(out, {**summary, "error": f"{type(error).__name__}: {error}"})

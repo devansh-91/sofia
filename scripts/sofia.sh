@@ -15,7 +15,12 @@ cd "$(dirname "$0")/.."
 
 BASE_MODEL="${SOFIA_BASE_MODEL:-hf.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive:Q4_K_M}"
 VOICE_DIR="${SOFIA_VOICE_DIR:-$HOME/.local/share/sofia/voices}"
-VOICES=("${SOFIA_VOICE:-hi_IN-priyamvada-medium}" "${SOFIA_VOICE_ENGLISH:-en_US-amy-medium}")
+# Kokoro's model and voice pack, with the sizes and SHA-256 sums they were first fetched with.
+KOKORO_URL=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
+KOKORO_FILES=(
+  "kokoro-v1.0.onnx 7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5"
+  "voices-v1.0.bin bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"
+)
 OLLAMA_URL="${OLLAMA_HOST:-http://127.0.0.1:11434}"
 
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -40,8 +45,14 @@ setup() {
   log "Installing the speech stack (about 1.4 GB on disk)..."
   uv pip install --python .venv/bin/python --index-strategy unsafe-best-match -r requirements-voice.txt
   mkdir -p "$VOICE_DIR"
-  for voice in "${VOICES[@]}"; do
-    [ -f "$VOICE_DIR/$voice.onnx" ] || { log "Downloading voice $voice..."; .venv/bin/python -m piper.download_voices "$voice" --data-dir "$VOICE_DIR"; }
+  local entry file sum
+  for entry in "${KOKORO_FILES[@]}"; do
+    read -r file sum <<<"$entry"
+    [ -f "$VOICE_DIR/$file" ] && continue
+    log "Downloading Kokoro $file..."
+    curl -fL --retry 3 -o "$VOICE_DIR/$file.part" "$KOKORO_URL/$file"
+    echo "$sum  $VOICE_DIR/$file.part" | sha256sum -c --quiet - || die "$file failed its checksum"
+    mv "$VOICE_DIR/$file.part" "$VOICE_DIR/$file"
   done
   log "Fetching the speech-to-text and emotion models (about 850 MB, first time only)..."
   .venv/bin/python -c "from sofia import stt, emotion; stt._load(); emotion._load()"

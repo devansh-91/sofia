@@ -1,18 +1,16 @@
-"""Decide whether a message is English or Hindi/Hinglish, and tell Sofia which to reply in.
+"""Tell English from Hindi/Hinglish, and keep Sofia answering in English.
 
-The 4B model can't reliably pick the reply language on its own, so we detect it
-here and append an explicit instruction to every user message.
+Sofia always replies in English, but the user often writes in Hinglish, and the 4B
+model tends to answer in whatever language it was spoken to. So every user message
+gets an explicit instruction appended, and her replies are checked for Hinglish.
 """
 import re
 
 ENGLISH = "english"
 HINGLISH = "hinglish"
 
-# Must match the bracketed instructions in models/Sofia.Modelfile's examples.
-REPLY_INSTRUCTION = {
-    ENGLISH: "[Reply only in casual English.]",
-    HINGLISH: "[Reply in simple Roman-script Hinglish.]",
-}
+# Must match the bracketed instruction in models/Sofia.Modelfile's examples.
+REPLY_INSTRUCTION = "[Reply only in casual English.]"
 
 _DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 
@@ -56,7 +54,3 @@ def detect(text: str, previous: str = HINGLISH) -> str:
     if hindi == 0 and len(words) >= 4:
         return ENGLISH
     return previous
-
-
-def with_reply_instruction(text: str, language: str) -> str:
-    return f"{text}\n{REPLY_INSTRUCTION[language]}"

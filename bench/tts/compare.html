@@ -31,7 +31,6 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 12px 0; }
   .text { font-size: 1.05rem; margin: 2px 0; }
-  .dev { color: var(--muted); font-size: .95rem; }
   .mood { display: inline-block; font-size: .78rem; padding: 1px 8px; border-radius: 99px;
           background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
   .take { display: grid; grid-template-columns: 2.2rem 1fr; gap: 4px 10px; align-items: center;
@@ -57,12 +56,8 @@
 <main>
   <h1>Sofia Voice Bench</h1>
   <p class="muted">Har line ke saare versions suno aur 1–5 do (5 = bilkul insaan jaisa, 1 = robot).
-    Naam chhupe hain taaki bias na ho. Sab rate karne ke baad <b>Naam dikhao</b> dabao.</p>
-
-  <div class="card" id="ref-card">
-    <div><b>Reference voice</b> <span class="muted">— cloning engines (OmniVoice, Chatterbox, IndicF5) isi awaaz ko copy karte hain</span></div>
-    <audio controls preload="none" src="/audio/ref/ref.wav"></audio>
-  </div>
+    Naam chhupe hain taaki bias na ho. Sab rate karne ke baad <b>Naam dikhao</b> dabao.
+    Saari lines rate karna zaroori nahi — 4–5 lines bhi kaafi hain.</p>
 
   <div class="bar">
     <button class="primary" id="reveal">Naam dikhao</button>
@@ -74,13 +69,13 @@
     <div class="scroll"><table id="summary-table"></table></div>
     <p class="muted" style="font-size:.85rem;margin-bottom:0">
       RTF = bolne mein laga time ÷ audio ki length (1 se kam = real-time se tez). VRAM = engine ne GPU pe kitna liya
-      (Sofia ka Qwen load ho toh sirf ~0.8 GB bachta hai — "Sofia ke saath" column yahi test hai). CER = Whisper ne jo suna wo text se kitna alag (kam = saaf).</p>
+      (Sofia ka Qwen load ho toh ~1 GB hi bachta hai — "Sofia ke saath" column yahi test hai; "CPU only" wale GPU chhoote hi nahi). CER = Whisper ne jo suna wo text se kitna alag (kam = saaf).</p>
   </div>
 
   <div id="lines"></div>
 </main>
 <script>
-const LETTERS = "ABCDEFGH";
+const LETTERS = "ABCDEFGHIJKL";
 let state = { lines: [], engines: [], ratings: {} };
 let revealed = location.hash === "#reveal";
 
@@ -116,8 +111,7 @@ function renderLines() {
   for (const line of state.lines) {
     const card = el("div", { class: "card" },
       el("div", {}, el("span", { class: "mood" }, line.mood), el("span", { class: "muted" }, line.id)),
-      el("div", { class: "text" }, line.roman.replace("{laugh}", "😄").replace("{sigh}", "😮‍💨")),
-      el("div", { class: "dev" }, line.devanagari.replace("{laugh}", "😄").replace("{sigh}", "😮‍💨")));
+      el("div", { class: "text" }, line.text.replace("{laugh}", "😄").replace("{sigh}", "😮‍💨")));
     shuffled(engines, hash(line.id)).forEach((engine, i) => {
       const score = state.ratings[engine.name]?.[line.id];
       total++; if (score) rated++;
@@ -134,7 +128,7 @@ function renderLines() {
       }
       if (revealed) {
         const meta = el("div", { class: "meta" }, el("b", {}, engine.name), ` · RTF ${fmt(result.rtf)}`);
-        if (check) meta.append(` · CER ${check.mixed_script ? "n/a (English likha)" : fmt(check.cer)} · Whisper ne suna: “${check.heard}”`);
+        if (check) meta.append(` · CER ${fmt(check.cer)} · Whisper ne suna: “${check.heard}”`);
         take.append(meta);
       }
       card.append(take);
@@ -153,7 +147,7 @@ function renderSummary() {
   for (const engine of state.engines.filter(e => !e.name.includes("@"))) {
     const scores = Object.values(state.ratings[engine.name] || {});
     const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
-    const cers = Object.values(engine.check || {}).filter(c => !c.mixed_script).map(c => c.cer);
+    const cers = Object.values(engine.check || {}).map(c => c.cer);
     const cpu = byEngine[`${engine.engine}@cpu`];
     const withSofia = byEngine[`${engine.engine}@sofia`];
     rows.push({ engine, avg, n: scores.length, cer: cers.length ? cers.reduce((a, b) => a + b, 0) / cers.length : null, cpu, withSofia });
@@ -186,7 +180,6 @@ function render() {
 document.getElementById("reveal").addEventListener("click", () => { revealed = !revealed; render(); });
 fetch("/api/data").then(r => r.json()).then(data => {
   state = data;
-  if (!data.ref) document.getElementById("ref-card").classList.add("hidden");
   render();
 });
 </script>

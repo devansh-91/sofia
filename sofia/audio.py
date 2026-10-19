@@ -54,20 +54,5 @@ def to_wav(source: Path) -> Path:
     return target
 
 
-def reshape(source: Path, target: Path, semitones: float = 0.0, tempo: float = 1.0) -> Path:
-    """Shift pitch (in semitones) and speed without changing each other."""
-    if not semitones and tempo == 1.0:
-        source.replace(target)
-        return target
-    pitch = 2 ** (semitones / 12)
-    subprocess.run(
-        ["ffmpeg", "-loglevel", "error", "-y", "-i", str(source),
-         "-af", f"rubberband=pitch={pitch:.4f}:tempo={tempo:.3f}", str(target)],
-        check=True,
-    )
-    source.unlink(missing_ok=True)
-    return target
-
-
 def play(path: Path) -> None:
     subprocess.run(["pw-play", str(path)], check=False)

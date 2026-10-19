@@ -25,7 +25,7 @@ FACTS = "facts"
 BEHAVIOUR = "behaviour"  # patterns in how the user acts, found by `reflect`
 TAUGHT = "taught"
 PREFERENCES = "preferences"
-EXAMPLES = "examples"  # {"user", "sofia", "language"}: replies the user liked or corrected
+EXAMPLES = "examples"  # {"user", "sofia", "language" of her reply}: replies the user liked or corrected
 KINDS = (FACTS, BEHAVIOUR, TAUGHT, PREFERENCES, EXAMPLES)
 MOODS = "moods"  # {"time", "mood", "language"} per user message; `habits` summarises them
 # Facts, behaviour, taught items and preferences go into every prompt, so keep them well
@@ -470,7 +470,7 @@ class Memory:
             return []
         return [
             {"role": "user", "content": "\n".join(parts)},
-            {"role": "assistant", "content": "Haan, yaad hai."},
+            {"role": "assistant", "content": "Yes, sir, I remember."},
         ]
 
     def examples_for(self, message: str, language: str) -> list[dict]:

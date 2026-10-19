@@ -1,21 +1,22 @@
 # Sofia
 
-A voice-assisted, **Hinglish** AI agent with **emotional intelligence** — it senses your tone,
-responds empathetically, and modulates its own voice (pitch/emotion) to fit the moment. Runs locally
-on your laptop, reachable from your phone.
+A voice-assisted AI companion with **emotional intelligence** — it senses your tone, responds
+empathetically, and shapes its own voice to fit the moment. Talk to it in English or Hinglish; it
+answers in natural spoken English and calls you "sir". Runs locally on your laptop, reachable from
+your phone.
 
-> 🚧 Working end to end, roughly: `./scripts/sofia.sh` starts text + voice chat in the browser (laptop or phone). The voice is a plain TTS with pitch/pace shaping, not yet a truly emotional one.
+> 🚧 Working end to end, roughly: `./scripts/sofia.sh` starts text + voice chat in the browser (laptop or phone). The voice is Kokoro: natural, but it only changes pace with the mood, not yet its emotion.
 
 ## Vision
 
 Sofia is a personal, emotionally-aware AI agent built around the **Qwen3.5-4B-Uncensored** model,
-running entirely on your own laptop. You talk to it by voice in Hinglish (mixed Hindi + English).
+running entirely on your own laptop. You talk to it by voice, in English or Hinglish; it answers in English.
 It listens for *how* you say things, not just *what* you say, and it talks back with matching feeling.
 
 - 🎙️ **Voice-first** — speak to Sofia, hear it reply
 - ❤️ **High EQ** — recognizes your emotion (angry / friendly / sad / …) and responds with empathy
 - 🎭 **Expressive voice** — controls its own pitch & tone (warm, firm, playful, …) per situation
-- 🌐 **Hinglish** — understands and speaks natural mixed Hindi-English
+- 🌐 **Understands Hinglish** — write or speak mixed Hindi-English; Sofia always answers in English
 - 💻 **Local-first** — everything runs on your laptop; no cloud bills, full privacy
 - 📱 **Cross-device** — laptop is the server; phone connects over a private tunnel
 
@@ -73,7 +74,7 @@ Everything competes for 6 GB, so the split is deliberate:
 | Qwen3.5-4B — **Q4_K_M** quant | GPU | ~3.9 GB measured (planned 3.0–3.5) |
 | STT (faster-whisper) | **CPU** (frees VRAM) | 0 GB VRAM |
 | SER (wav2vec2) | **CPU** | 0 GB VRAM |
-| TTS (Piper) | **CPU** | 0 GB VRAM — leaves ~1.9 GB free for a real emotional TTS later |
+| TTS (Kokoro-82M, ONNX) | **CPU** | 0 GB VRAM — only ~1 GB is left next to the LLM anyway |
 | KV cache / context | GPU | remainder |
 
 Q4 is the right quant — Q5+ won't leave room for TTS. Measured speed is ~43–48 tok/s.
@@ -93,23 +94,23 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
 | Hosting | Local on this laptop (no AWS — free tier can't run a 4B model) |
 | STT | faster-whisper `small`, int8, on CPU; chooses between Hindi and English per utterance |
 | SER | `superb/wav2vec2-base-superb-er` on CPU (neutral / happy / angry / sad) |
-| TTS | Piper on CPU: `hi_IN-priyamvada` for Hinglish, `en_US-amy` for English; mood sets pitch and pace |
+| TTS | Kokoro-82M (ONNX) on CPU, voice `af_heart` (set `SOFIA_VOICE` to change it); mood sets the pace |
 | Phone client | Web app served by `sofia/server.py`, protected by an access key |
 | Phone access | Private tunnel (e.g. Tailscale) to the laptop |
-| Interface | Voice-assisted, Hinglish, emotionally aware |
+| Interface | Voice-assisted, emotionally aware; understands English + Hinglish, answers in English, calls the user "sir" |
 
 ## Still to decide
 
-- **Emotional TTS:** the crux. Piper is a stand-in: clear, but one speaking style per voice, and
-  Sofia has a different voice in each language. Candidates for a real one: XTTS-v2 (multilingual,
-  incl. Hindi) vs. StyleTTS2 / Parler-TTS (expressive, English-first) — it has to fit in ~1.9 GB VRAM.
+- **Emotional TTS:** Kokoro sounds natural but has one speaking style per voice. Chatterbox-Turbo
+  and -Nano can laugh, sigh and take emotion tags, but need 2.9 / 1.9 GB of VRAM: next to the LLM
+  both run out of memory, and on the CPU they are slower than real time. `bench/tts` compares the
+  candidates by ear.
 - **SER for Hinglish:** the current model is trained on acted English and is unverified on real
   Hinglish speech; emotion2vec is the likely replacement.
 - **STT speed:** ~3–4 s per utterance on CPU. Moving Whisper to the GPU would cut that, at ~0.6 GB VRAM.
 
 ### Known-hard problems (be realistic)
 - **Sarcasm** — hardest to both detect (it's context, not just prosody) and to synthesize. Treat as a stretch goal, not v1.
-- **Expressive code-switched Hinglish TTS** — the frontier; most expressive TTS is English-only.
 - **Live loop on 6 GB VRAM** — needs careful sequencing so SER + STT + LLM + TTS don't peak at once. (Disk/RAM are fine; VRAM is the only tight resource.)
 
 ## Getting Started
@@ -172,18 +173,17 @@ exchanges; re-run `ollama create` after editing it. **Always run with thinking o
 the model loops over drafts until the context is full and never answers. Via the API that is
 `"think": false` (`sofia/chat.py` sets it); with plain `ollama run sofia` pass `--think=false`.
 
-**Language:** Sofia replies in English to English and in Roman-script Hinglish to Hindi/Hinglish
-(Roman or Devanagari). The 4B model can't pick the language reliably by itself, so `sofia/lang.py`
-detects it per message and `sofia/chat.py` appends an explicit reply instruction — plain
-`ollama run sofia` skips that step and mostly answers in Hinglish. Very short messages ("haha ok")
-keep the previous language.
+**Language:** Sofia always answers in English and calls the user "sir", whether you write in
+English or Hinglish (Roman or Devanagari). Left to itself the 4B model answers in whatever language
+it was spoken to, so `sofia/chat.py` appends an explicit reply instruction to every message; if a
+reply still comes back in Hinglish (`sofia/lang.py` spots it) she is asked again, and as a last
+resort it is translated. Plain `ollama run sofia` skips all of that.
 
-**Hinglish quality** comes from three things in the Modelfile: temperature 0.3, *no* repeat penalty
-(it punishes the hai/ka/ko words Hindi repeats constantly), and the example exchanges. On top of
-that, `sofia/polish.py` cleans each reply in code: "bhai" used as an address becomes "yaar",
-masculine first-person verbs become feminine ("aata hoon" → "aati hoon"), and markdown, emojis and
-leaked bracket instructions are stripped. Replies are coherent most of the time, but a 4B model
-still produces the odd phrase that doesn't make sense, and its jokes are weak.
+**Reply quality** comes from the persona and the example exchanges in the Modelfile — several are
+Hinglish questions with English answers, which is what keeps her in English — with Qwen's
+recommended non-thinking sampling. `sofia/polish.py` strips markdown, emojis and leaked bracket
+instructions, since every reply is spoken aloud. A 4B model still produces the odd reply that misses
+the mood, and its jokes are weak.
 
 **Active learning:** Sofia learns while you talk and carries it into every later conversation.
 The model's weights do not change (yet) — after each of your messages a second small prompt
@@ -235,7 +235,7 @@ understand Hinglish). Ruled out on size without testing: Dolphin 3 8B (4.9 GB do
 ### Step 3 — Voice and phone
 
 ```bash
-./scripts/sofia.sh setup     # .venv + speech stack, two Piper voices, STT + emotion models, sofia model
+./scripts/sofia.sh setup     # .venv + speech stack, Kokoro voice, STT + emotion models, sofia model
 ./scripts/sofia.sh           # start everything: web app with text + voice
 ./scripts/sofia.sh voice     # or talk in the terminal: Enter, speak, Enter
 ./scripts/sofia.sh chat      # text only, in the terminal
@@ -247,14 +247,14 @@ One voice turn runs the whole affective loop:
 ```
 mic → faster-whisper (what you said) ─┐
     → wav2vec2 SER  (how you sounded) ─┴→ Sofia (LLM + memory) → reply
-reply → Devanagari respelling (LLM) → Piper → pitch/pace for the mood → speaker
+reply → Kokoro → pace for the mood → speaker
 ```
 
 - **What you said:** Hindi comes back in Devanagari and English in English; the chat handles both.
 - **How you sounded:** the mood heard in your voice is passed to her as `[The user sounds sad.]` and
   overrides the mood guessed from the words. Below 70 % confidence it is treated as neutral.
-- **Her voice:** soft (lower, slower) when you are sad, lonely or tired; calm when you are stressed,
-  anxious or angry; bright (higher, faster) when you are happy; playful when you are bored. This
+- **Her voice:** soft (slower) when you are sad, lonely or tired; calm when you are stressed,
+  anxious or angry; bright (quicker) when you are happy; playful when you are bored. This
   follows *your* mood — the model does not yet choose its own style tag as in the diagram above.
 - **Timing:** about 9 s from the end of your speech to her reply on this laptop (STT ~4 s).
 - **Microphone level:** at the default input volume this laptop's mic clips on room noise alone and

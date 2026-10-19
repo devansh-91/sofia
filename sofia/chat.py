@@ -1,4 +1,4 @@
-"""Text-only Sofia: chat in the terminal with automatic English / Hinglish replies.
+"""Text-only Sofia: chat in the terminal. Write in English or Hinglish; she answers in English.
 
     python3 -m sofia.chat
 
@@ -33,13 +33,13 @@ HELP = (
 )
 
 
-def _user_turn(text: str, language: str, *notes: str) -> dict:
-    lines = [text, *notes, REPLY_INSTRUCTION[language]]
+def _user_turn(text: str, *notes: str) -> dict:
+    lines = [text, *notes, REPLY_INSTRUCTION]
     return {"role": "user", "content": "\n".join(line for line in lines if line)}
 
 
 def _in_english(hinglish: str) -> str:
-    """Last resort when she keeps answering an English message in Hinglish: translate it."""
+    """Last resort when she keeps answering in Hinglish: translate it."""
     system = ("Translate the Hinglish line into casual spoken English. Keep the meaning, tone and any "
               "swearing. Output only the translation.")
     return ollama.chat(
@@ -52,7 +52,6 @@ def _in_english(hinglish: str) -> str:
 def reply(
     history: list[dict],
     text: str,
-    language: str,
     memory: Memory | None = None,
     curious: bool = False,
     sounds: str = NEUTRAL,
@@ -61,32 +60,31 @@ def reply(
 
     `sounds` is the mood heard in the user's voice, when they spoke rather than typed.
     """
-    history.append(_user_turn(text, language))
+    history.append(_user_turn(text))
     del history[:-MAX_HISTORY_MESSAGES]
     heard = f"[The user sounds {sounds}.]" if sounds != NEUTRAL else ""
-    messages = history[:-1] + [_user_turn(text, language, heard)]
+    messages = history[:-1] + [_user_turn(text, heard)]
     if memory:
         learned = []
-        for example in memory.examples_for(text, language):
-            learned += [_user_turn(example["user"], example["language"]),
-                        {"role": "assistant", "content": example["sofia"]}]
+        for example in memory.examples_for(text, ENGLISH):
+            learned += [_user_turn(example["user"]), {"role": "assistant", "content": example["sofia"]}]
         # Notes ride only on the newest message, so they are never repeated in history.
-        newest = _user_turn(text, language, heard, memory.preference_note(), CURIOSITY_NOTE if curious else "")
+        newest = _user_turn(text, heard, memory.preference_note(), CURIOSITY_NOTE if curious else "")
         messages = memory.background() + learned + history[:-1] + [newest]
     answer = ollama.chat(MODEL, messages)
-    # The model occasionally slips into Hinglish on an English turn (food and other
-    # desi topics mostly). Show it the slip and ask again — a plain retry repeats it.
+    # The model slips into Hinglish now and then, mostly when the user wrote in it.
+    # Show it the slip and ask again — a plain retry repeats it.
     for _ in range(2):
-        if language != ENGLISH or detect(answer, ENGLISH) != HINGLISH:
+        if detect(answer, ENGLISH) != HINGLISH:
             break
         correction = [
             {"role": "assistant", "content": answer},
             {"role": "user", "content": "[That was Hindi. Say the same thing in English only.]"},
         ]
         answer = ollama.chat(MODEL, messages + correction)
-    if language == ENGLISH and detect(answer, ENGLISH) == HINGLISH:
+    if detect(answer, ENGLISH) == HINGLISH:
         answer = _in_english(answer)
-    answer = polish(answer, language)
+    answer = polish(answer)
     history.append({"role": "assistant", "content": answer})
     return answer
 
@@ -98,9 +96,9 @@ class Session:
         self.memory = memory
         self.log = log
         self.history: list[dict] = []
-        self.language = HINGLISH
+        self.language = HINGLISH  # of the user's messages; her replies are always English
         self.turns = 0
-        self.last: dict | None = None  # {"user", "sofia", "language"} of the latest exchange
+        self.last: dict | None = None  # {"user", "sofia", "language" (of her reply)} of the latest exchange
         self.last_id = ""
         self.unreflected: list[dict] = []
 
@@ -121,12 +119,12 @@ class Session:
             len(self.memory.items[FACTS]) < CURIOUS_BELOW_FACTS and self.turns % CURIOUS_EVERY_TURNS == 2
         )
         previous, previous_id = self.last, self.last_id
-        answer = reply(self.history, text, self.language, self.memory, curious, sounds)
+        answer = reply(self.history, text, self.memory, curious, sounds)
         # learn() keeps a praised reply as an example; the log records praise and criticism.
         learned, reaction = self.memory.learn(text, self.language, previous, heard_mood=sounds)
         if reaction != NONE:
             self.log.feedback(previous_id, reaction)
-        self.last = {"user": text, "sofia": answer, "language": self.language}
+        self.last = {"user": text, "sofia": answer, "language": ENGLISH}
         self.last_id = self.log.turn(text, answer, self.language)
         self.unreflected.append(self.last)
         if len(self.unreflected) >= REFLECT_EVERY_TURNS:
@@ -179,7 +177,7 @@ class Session:
 
 def main() -> None:
     session = Session(Memory(), ConversationLog())
-    print(f"Sofia — English ya Hinglish, jo bhi bolo.\n{HELP}\n")
+    print(f"Sofia — write in English or Hinglish, she answers in English.\n{HELP}\n")
     while True:
         try:
             text = input("you> ").strip()
@@ -197,10 +195,10 @@ def main() -> None:
         answer, learned = session.say(text)
         print(f"sofia> {answer}")
         for item in learned:
-            print(f"  (yaad rakha: {item})")
+            print(f"  (remembered: {item})")
         print()
     for item in session.reflect():
-        print(f"  (yaad rakha: {item})")
+        print(f"  (remembered: {item})")
 
 
 if __name__ == "__main__":

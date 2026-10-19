@@ -66,7 +66,7 @@ class Sofia:
             return None
         from sofia import tts
 
-        wav, _ = tts.speak(answer, self.session.language, self.session.mood)
+        wav, _ = tts.speak(answer, self.session.mood)
         kept = self.audio_dir / f"{secrets.token_hex(8)}.wav"
         wav.replace(kept)
         self.replies.append(kept)

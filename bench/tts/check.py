@@ -2,14 +2,13 @@
 
     .venv/bin/python bench/tts/check.py [engine ...]     (Sofia's venv; default: every engine with output)
 
-A rough signal only: CER after stripping punctuation, nukta and spacing. Whisper itself
-misspells Hindi, so compare engines with each other rather than reading the numbers as absolute.
+A rough signal only: CER after stripping punctuation, case and spacing. Compare engines with
+each other rather than reading the numbers as absolute.
 """
 import json
 import os
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -19,14 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common  # noqa: E402
 
 MODEL = os.environ.get("BENCH_WHISPER", "large-v3-turbo")
-# Nudges Whisper to write English loanwords in Devanagari too, so script choice doesn't count as an error.
-# Deliberately uses none of the test lines' words.
-PROMPT = "मेरा लैपटॉप, मोबाइल और ऑफ़िस का कंप्यूटर।"
 
 
 def normalize(text: str) -> str:
-    text = unicodedata.normalize("NFD", text.lower()).replace("़", "")  # nukta: फ़ == फ for scoring
-    return re.sub(r"[\W_]+", "", unicodedata.normalize("NFC", text))
+    return re.sub(r"[\W_]+", "", text.lower())
 
 
 def cer(expected: str, heard: str) -> float:
@@ -64,13 +59,11 @@ def main() -> None:
             line = every.get(wav.stem)
             if not line:
                 continue
-            segments, _ = model.transcribe(to_16k(wav), language="hi", beam_size=3, condition_on_previous_text=False,
-                                           initial_prompt=PROMPT)
+            segments, _ = model.transcribe(to_16k(wav), language="en", beam_size=3, condition_on_previous_text=False)
             heard = " ".join(segment.text.strip() for segment in segments).strip()
-            score = cer(common.fill(line["devanagari"], laugh="", sigh=""), heard)
-            # Whisper still writes very English-sounding stretches in Latin script; CER can't judge those.
-            mixed = bool(re.search(r"[a-zA-Z]{2,}", heard))
-            report[wav.stem] = {"heard": heard, "cer": round(score, 3), "mixed_script": mixed}
+            # Whisper writes numbers as digits ("42"), the lines spell them out.
+            score = cer(common.fill(line["text"], laugh="", sigh=""), re.sub(r"\b42\b", "forty-two", heard))
+            report[wav.stem] = {"heard": heard, "cer": round(score, 3)}
             print(f"{name} {wav.stem} CER {score:.2f}  {heard}", flush=True)
         if not report:
             continue

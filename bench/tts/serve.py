@@ -1,6 +1,8 @@
 """Listening page for the TTS comparison (stdlib only).
 
-    python3 bench/tts/serve.py [--host 0.0.0.0] [--port 8765]
+    python3 bench/tts/serve.py [--host 0.0.0.0] [--port 8766]
+
+Port 8766, because Sofia's own web app uses 8765.
 
 Ratings are saved to $SOFIA_BENCH_DIR/ratings.json as you click.
 """
@@ -38,7 +40,6 @@ def data() -> dict:
         "lines": json.loads((HERE / "lines.json").read_text()),
         "engines": engines,
         "ratings": _read(RATINGS, {}),
-        "ref": (DATA / "ref" / "ref.wav").exists(),
     }
 
 
@@ -59,7 +60,7 @@ class Handler(BaseHTTPRequestHandler):
         match = re.fullmatch(r"/audio/([\w@.-]+)/([\w-]+)\.wav", self.path)
         if match:
             folder, clip = match.groups()
-            path = DATA / "ref" / "ref.wav" if folder == "ref" else OUT / folder / f"{clip}.wav"
+            path = OUT / folder / f"{clip}.wav"
             if ".." not in folder and path.is_file():
                 return self._send(path.read_bytes(), "audio/wav")
         self._send(b"not found", "text/plain", 404)
@@ -88,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, default=8766)
     args = parser.parse_args()
     print(f"TTS comparison: http://{args.host}:{args.port}", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

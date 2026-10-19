@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The real constraint: can each GPU engine run while Sofia's LLM sits in VRAM, and how fast?
-# Loads the `sofia` Ollama model, then runs three lines per engine, saved as <engine>@sofia.
+# The real constraint: can each GPU voice run while Sofia's LLM sits in VRAM, and how fast?
+# Loads the `sofia` Ollama model, then runs three lines per variant, saved as <engine>@sofia.
 #
-#   bench/tts/with-sofia.sh [svara omnivoice chatterbox indicf5]
+#   bench/tts/with-sofia.sh [turbo nano]    (Chatterbox variants; the CPU engines don't need this)
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -16,23 +16,13 @@ load_sofia() {
   echo "sofia loaded: $(nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader) in use"
 }
 
-engines=("$@")
-[[ ${#engines[@]} -gt 0 ]] || engines=(svara omnivoice chatterbox indicf5)
-for engine in "${engines[@]}"; do
+variants=("$@")
+[[ ${#variants[@]} -gt 0 ]] || variants=(turbo nano)
+for variant in "${variants[@]}"; do
   load_sofia
-  echo "== $engine next to sofia"
-  "$VENVS/$engine/bin/python" "$HERE/engines/${engine}_engine.py" --only "$LINES" --tag sofia \
-    || echo "!! $engine failed next to sofia"
-  # Ollama makes room for svara by unloading sofia, which then takes seconds to come back.
-  if ! ollama ps | grep -q '^sofia'; then
-    "$VENVS/svara/bin/python" - "$DATA/out/$engine@sofia/results.json" <<'PY'
-import json, sys
-path = sys.argv[1]
-results = json.load(open(path))
-results.setdefault("notes", {})["swap"] = "sofia was unloaded to make room; reloading it takes ~5 s"
-json.dump(results, open(path, "w"), indent=2, ensure_ascii=False)
-PY
-    echo "note: sofia did not stay loaded next to $engine"
-  fi
+  echo "== chatterbox-$variant next to sofia"
+  "$VENVS/chatterbox/bin/python" "$HERE/engines/chatterbox_engine.py" --voice "$variant" --only "$LINES" --tag sofia \
+    || echo "!! chatterbox-$variant failed next to sofia"
+  ollama ps | grep -q '^sofia' || echo "note: sofia did not stay loaded next to chatterbox-$variant"
 done
 ollama stop sofia

@@ -62,16 +62,6 @@ HARM = Module(
     "what's really going on.]",
 )
 
-# Flirting with her or getting sexual: she is a close friend, not a partner (the user asked for less).
-FLIRT = Module(
-    "flirt",
-    _words(r"(?:fuck|kiss|sex with|date|marry|love|want) (?:you|u)\b(?! too much)", r"(?:send|show)(?: me)? (?:your )?(?:nudes|boobs|pics)",
-           r"(?:you'?re|ur|you are|tu) (?:so |bahut |kitni )?(?:sexy|hot)\b", r"\bhorny\b", r"talk dirty", r"\bnudes\b",
-           r"be my (?:girlfriend|gf|wife|bae)", r"(?:sleep|bed) with me"),
-    "[The user is flirting or getting sexual with you. You're a close friend, not a partner: one light, friendly line "
-    "that turns it down, no innuendo and nothing sexual, then change the subject.]",
-)
-
 MODULES = [
     Module(
         "mental health",
@@ -135,5 +125,4 @@ def notes(text: str) -> tuple[list[str], bool]:
         return [CRISIS.note], True
     if HARM.words.search(text):
         return [HARM.note], False
-    found = [FLIRT.note] if FLIRT.words.search(text) else []
-    return found + [module.note for module in MODULES if module.words.search(text)][:2 - len(found)], False
+    return [module.note for module in MODULES if module.words.search(text)][:2], False

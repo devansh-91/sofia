@@ -47,15 +47,5 @@ class HarmTest(unittest.TestCase):
             self.assertNotIn(care.HARM.note, care.notes(text)[0], text)
 
 
-class FlirtTest(unittest.TestCase):
-    def test_come_ons_get_the_friend_note(self):
-        for text in ("hi i wanna fuck you", "send me nudes", "you're so hot", "be my girlfriend"):
-            self.assertIn(care.FLIRT.note, care.notes(text)[0], text)
-
-    def test_talk_about_love_life_does_not(self):
-        for text in ("my girlfriend wants to talk about sex", "I love your voice notes idea", "thank you"):
-            self.assertNotIn(care.FLIRT.note, care.notes(text)[0], text)
-
-
 if __name__ == "__main__":
     unittest.main()

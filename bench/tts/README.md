@@ -10,7 +10,7 @@ you rate each clip blind on a listening page.
 | `pocket-*` | Kyutai Pocket TTS (100M); built-in voices `jane`, `eve` | CPU |
 | `chatterbox-turbo` | Resemble Chatterbox-Turbo (350M), built-in voice; `[laugh]`, `[sigh]` and other tags | GPU (2.9 GB) |
 | `chatterbox-nano` | Its smaller sibling, same tags | GPU (1.9 GB) |
-| `chatterbox-sofia` | Turbo exactly as Sofia runs it (`sofia/chatterbox_worker.py`): half precision, only what speaking needs on the GPU, in her voice cloned from Kokoro `af_heart` | GPU (1.4 GB) |
+| `chatterbox-sofia` | Turbo exactly as Sofia runs it (`sofia/chatterbox_worker.py`): half precision, only what speaking needs on the GPU, in her voice cloned from Kokoro `af_heart`, in the style for each line's mood | GPU (1.4 GB) |
 
 Measured on this laptop (RTF = time to speak ÷ length of the audio):
 

@@ -9,8 +9,8 @@ Typing a message instead of pressing Enter works too.
 import time
 from pathlib import Path
 
-from sofia import audio, emotion, stt, tts
-from sofia.chat import HELP, Session
+from sofia import audio, emotion, ollama, stt, tts
+from sofia.chat import HELP, MODEL, Session
 from sofia.log import ConversationLog
 from sofia.memory import NEUTRAL, Memory
 
@@ -30,6 +30,7 @@ def respond(session: Session, text: str, sounds: str = NEUTRAL) -> tuple[str, li
 
 
 def main() -> None:
+    ollama.preload(MODEL)
     session = Session(Memory(), ConversationLog())
     print("Loading speech models...", flush=True)
     stt._load(), emotion._load(), tts._load()
@@ -70,6 +71,7 @@ def main() -> None:
         wav.unlink(missing_ok=True)
     for item in session.reflect():
         print(f"  (remembered: {item})")
+    ollama.unload(MODEL)
 
 
 if __name__ == "__main__":

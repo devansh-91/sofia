@@ -103,8 +103,9 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
 
 ## Still to decide
 
-- **Emotional TTS:** Turbo makes real sounds but has no emotion or pace control, so the tone comes
-  from her words and sounds alone (the mood still sets Kokoro's pace). `bench/tts` compares voices by ear.
+- **Emotional TTS:** Turbo has no emotion or pace setting. Her tone for your mood comes from five
+  clones of her voice read at different paces (see "Her voice" below), plus her words and sounds;
+  the clones change pace and liveliness, not a sad or happy timbre. `bench/tts` compares voices by ear.
 - **SER for Hinglish:** the current model is trained on acted English and is unverified on real
   Hinglish speech; emotion2vec is the likely replacement.
 - **STT speed:** ~3–4 s per utterance on CPU. Moving Whisper to the GPU would cut that, at ~0.6 GB VRAM.
@@ -187,7 +188,9 @@ the mood, and its jokes are weak.
 **Sounds:** she may write `[laugh]`, `[chuckle]`, `[sigh]` or `[gasp]` where the sound belongs, and
 her voice makes it. The Modelfile asks for them rarely and never when you are hurt; in a test 5 of
 14 replies had one, mostly well placed. `sofia/polish.py` turns stage directions like `*laughs*`
-into tags and drops any other bracketed text.
+into tags and drops any other bracketed text. Once your mood is read, it also drops the sounds that
+don't fit it (none when you are sad, lonely, anxious or angry; only a sigh when you are stressed
+or tired) and keeps at most one per reply.
 
 **Active learning:** Sofia learns while you talk and carries it into every later conversation.
 The model's weights do not change (yet) — after each of your messages a second small prompt
@@ -254,17 +257,23 @@ One voice turn runs the whole affective loop:
 ```
 mic → faster-whisper (what you said) ─┐
     → wav2vec2 SER  (how you sounded) ─┴→ Sofia (LLM + memory) → reply
-reply → Chatterbox-Turbo, sounds included (or Kokoro, pace for the mood) → speaker
+reply → Chatterbox-Turbo in the style for your mood, sounds included (or Kokoro) → speaker
 ```
 
 - **What you said:** Hindi comes back in Devanagari and English in English; the chat handles both.
 - **How you sounded:** the mood heard in your voice is passed to her as `[The user sounds sad.]` and
   overrides the mood guessed from the words. Below 70 % confidence it is treated as neutral.
 - **Her voice:** Chatterbox-Turbo (`sofia/chatterbox_worker.py`, its own venv and process, ~1.4 GB
-  VRAM, about 4x faster than real time) laughs or sighs where her reply has a sound tag. When it
-  is not installed or fails, Kokoro speaks instead: soft (slower) when you are sad, lonely or
-  tired; calm when you are stressed, anxious or angry; bright (quicker) when you are happy;
-  playful when you are bored.
+  VRAM, about 4x faster than real time) laughs or sighs where her reply has a sound tag. Its style
+  follows your mood: soft when you are sad, lonely or tired (~12% slower); calm when you are
+  stressed, anxious or angry (~6% slower); bright when you are happy (~5% quicker, livelier pitch);
+  playful when you are bored. Turbo has no style setting but copies the pace of the voice it
+  clones, so each style is its own clone, of Kokoro reading a fitting line at a fitting pace
+  (`TURBO_STYLES` in `sofia/tts.py`). When Turbo is not installed or fails, Kokoro speaks instead,
+  in the same styles by pace alone.
+- **Start-up:** the LLM loads while the speech models do, so her first reply takes ~5 s instead of
+  ~20 s. It stays in VRAM for an hour after her last reply (`SOFIA_KEEP_ALIVE`; Ollama's default
+  of 5 minutes made the next reply after a pause wait for it) and is unloaded when she stops.
 - **Timing:** about 9 s from the end of your speech to her reply on this laptop (STT ~4 s).
 - **Microphone level:** at the default input volume this laptop's mic clips on room noise alone and
   nothing is recognised. `wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.2` fixes it; the voice loop

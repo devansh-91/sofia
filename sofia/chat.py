@@ -10,7 +10,7 @@ from sofia import ollama
 from sofia.lang import ENGLISH, HINGLISH, REPLY_INSTRUCTION, detect
 from sofia.log import GOOD, ConversationLog
 from sofia.memory import FACTS, MOODS, NEUTRAL, NONE, Memory
-from sofia.polish import polish
+from sofia.polish import fit_sounds, polish
 
 MODEL = os.environ.get("SOFIA_MODEL", "sofia")
 
@@ -122,6 +122,8 @@ class Session:
         answer = reply(self.history, text, self.memory, curious, sounds)
         # learn() keeps a praised reply as an example; the log records praise and criticism.
         learned, reaction = self.memory.learn(text, self.language, previous, heard_mood=sounds)
+        # learn() has just read the user's mood: drop a sound that doesn't fit it.
+        answer = self.history[-1]["content"] = fit_sounds(answer, self.mood)
         if reaction != NONE:
             self.log.feedback(previous_id, reaction)
         self.last = {"user": text, "sofia": answer, "language": ENGLISH}
@@ -176,6 +178,7 @@ class Session:
 
 
 def main() -> None:
+    ollama.preload(MODEL)
     session = Session(Memory(), ConversationLog())
     print(f"Sofia — write in English or Hinglish, she answers in English.\n{HELP}\n")
     while True:
@@ -199,6 +202,7 @@ def main() -> None:
         print()
     for item in session.reflect():
         print(f"  (remembered: {item})")
+    ollama.unload(MODEL)
 
 
 if __name__ == "__main__":

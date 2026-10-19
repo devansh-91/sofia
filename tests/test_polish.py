@@ -1,6 +1,6 @@
 import unittest
 
-from sofia.polish import polish, without_sounds
+from sofia.polish import fit_sounds, polish, without_sounds
 
 
 class PolishTest(unittest.TestCase):
@@ -20,6 +20,16 @@ class PolishTest(unittest.TestCase):
 
     def test_without_sounds(self):
         self.assertEqual(without_sounds("[laugh] Oh, sir, stop it! [sigh]"), "Oh, sir, stop it!")
+
+    def test_fit_sounds_drops_sounds_that_do_not_fit_the_mood(self):
+        self.assertEqual(fit_sounds("[gasp] Oh no, sir. I'm so sorry.", "sad"), "Oh no, sir. I'm so sorry.")
+        self.assertEqual(fit_sounds("Sir, [laugh] calm down.", "angry"), "Sir, calm down.")
+        self.assertEqual(fit_sounds("[sigh] Long day, sir.", "tired"), "[sigh] Long day, sir.")
+        self.assertEqual(fit_sounds("[laugh] Long day, sir.", "tired"), "Long day, sir.")
+        self.assertEqual(fit_sounds("[gasp] No way, sir!", "happy"), "[gasp] No way, sir!")
+
+    def test_fit_sounds_keeps_one_sound(self):
+        self.assertEqual(fit_sounds("[laugh] Stop it, sir! [chuckle]", "neutral"), "[laugh] Stop it, sir!")
 
 
 if __name__ == "__main__":

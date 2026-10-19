@@ -21,7 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from sofia.chat import Session
+from sofia import ollama
+from sofia.chat import MODEL, Session
 from sofia.log import ConversationLog
 from sofia.memory import NEUTRAL, Memory
 
@@ -48,6 +49,7 @@ class Sofia:
     """The one conversation this server holds, plus speech when available."""
 
     def __init__(self, speech: bool):
+        ollama.preload(MODEL)  # alongside the speech models, which take longer
         self.session = Session(Memory(), ConversationLog())
         self.lock = threading.Lock()  # one reply at a time: a single model, a single conversation
         self.replies: list[Path] = []
@@ -194,6 +196,7 @@ def main() -> None:
         pass
     finally:
         Handler.sofia.session.reflect()
+        ollama.unload(MODEL)
 
 
 if __name__ == "__main__":

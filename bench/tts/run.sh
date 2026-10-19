@@ -5,7 +5,8 @@
 #
 # Kokoro and Pocket run on the CPU. Chatterbox starts from an empty GPU (all Ollama models
 # are unloaded first), then repeats a few lines on the CPU, since in Sofia the LLM takes
-# most of the 6 GB.
+# most of the 6 GB. chatterbox-sofia is Turbo exactly as Sofia runs it (split, half precision,
+# her cloned voice); with-sofia.sh checks it next to the LLM.
 set -uo pipefail   # no -e: one engine failing must not stop the others
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -37,7 +38,9 @@ for engine in "${engines[@]}"; do
         free_gpu
         bench chatterbox "$VENVS/chatterbox/bin/python" --voice "$variant"
         bench chatterbox "$VENVS/chatterbox/bin/python" --voice "$variant" --device cpu --only "$CPU_LINES"
-      done ;;
+      done
+      free_gpu
+      bench chatterbox "$VENVS/chatterbox/bin/python" --voice sofia ;;
     *)
       echo "unknown engine: $engine" ;;
   esac

@@ -7,10 +7,9 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 if not OLLAMA_HOST.startswith("http"):
     OLLAMA_HOST = f"http://{OLLAMA_HOST}"
 
-# Same weights as `sofia`, without her persona and examples getting in the way.
-BASE_MODEL = os.environ.get(
-    "SOFIA_BASE_MODEL", "hf.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive:Q4_K_M"
-)
+# Same weights as `sofia`, without her persona and examples getting in the way
+# (built by scripts/sofia.sh). Ollama runs both on one loaded copy.
+BASE_MODEL = os.environ.get("SOFIA_BASE_MODEL", "sofia-base")
 
 
 def chat(model: str, messages: list[dict], **extra) -> str:

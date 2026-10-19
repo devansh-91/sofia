@@ -2,7 +2,7 @@
 # The real constraint: can each GPU voice run while Sofia's LLM sits in VRAM, and how fast?
 # Loads the `sofia` Ollama model, then runs three lines per variant, saved as <engine>@sofia.
 #
-#   bench/tts/with-sofia.sh [turbo nano]    (Chatterbox variants; the CPU engines don't need this)
+#   bench/tts/with-sofia.sh [turbo nano sofia]    (Chatterbox variants; the CPU engines don't need this)
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -17,7 +17,7 @@ load_sofia() {
 }
 
 variants=("$@")
-[[ ${#variants[@]} -gt 0 ]] || variants=(turbo nano)
+[[ ${#variants[@]} -gt 0 ]] || variants=(turbo nano sofia)
 for variant in "${variants[@]}"; do
   load_sofia
   echo "== chatterbox-$variant next to sofia"

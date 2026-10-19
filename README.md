@@ -5,7 +5,7 @@ empathetically, and shapes its own voice to fit the moment. Talk to it in Englis
 answers in natural spoken English and calls you "sir". Runs locally on your laptop, reachable from
 your phone.
 
-> 🚧 Working end to end, roughly: `./scripts/sofia.sh` starts text + voice chat in the browser (laptop or phone). The voice is Kokoro: natural, but it only changes pace with the mood, not yet its emotion.
+> 🚧 Working end to end, roughly: `./scripts/sofia.sh` starts text + voice chat in the browser (laptop or phone). Her voice is Chatterbox-Turbo speaking a clone of Kokoro's `af_heart`: she really laughs, chuckles, sighs and gasps. Kokoro on the CPU is the fallback.
 
 ## Vision
 
@@ -71,12 +71,14 @@ Everything competes for 6 GB, so the split is deliberate:
 
 | Component | Runs on | Footprint |
 |-----------|---------|-----------|
-| Qwen3.5-4B — **Q4_K_M** quant | GPU | ~3.9 GB measured (planned 3.0–3.5) |
+| Qwen3.5-4B — **Q4_K_M** quant | GPU | ~2.9 GB measured, without the vision projector it ships with (~0.9 GB) |
 | STT (faster-whisper) | **CPU** (frees VRAM) | 0 GB VRAM |
 | SER (wav2vec2) | **CPU** | 0 GB VRAM |
-| TTS (Kokoro-82M, ONNX) | **CPU** | 0 GB VRAM — only ~1 GB is left next to the LLM anyway |
-| KV cache / context | GPU | remainder |
+| TTS (Chatterbox-Turbo, half precision, split GPU / CPU) | GPU | ~1.4 GB (the whole model in full precision: 3.3 GB) |
+| TTS fallback (Kokoro-82M, ONNX) | **CPU** | 0 GB VRAM |
+| KV cache / context | GPU | included above |
 
+With the desktop's ~1.3 GB, everything together uses ~5.6 of the 6 GB.
 Q4 is the right quant — Q5+ won't leave room for TTS. Measured speed is ~43–48 tok/s.
 
 ### ⚠️ Prerequisite: NVIDIA driver + CUDA
@@ -94,17 +96,15 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
 | Hosting | Local on this laptop (no AWS — free tier can't run a 4B model) |
 | STT | faster-whisper `small`, int8, on CPU; chooses between Hindi and English per utterance |
 | SER | `superb/wav2vec2-base-superb-er` on CPU (neutral / happy / angry / sad) |
-| TTS | Kokoro-82M (ONNX) on CPU, voice `af_heart` (set `SOFIA_VOICE` to change it); mood sets the pace |
+| TTS | Chatterbox-Turbo on the GPU, cloned from Kokoro's `af_heart` (`SOFIA_VOICE`); Kokoro-82M on CPU as fallback (`SOFIA_TTS=kokoro` to use only it) |
 | Phone client | Web app served by `sofia/server.py`, protected by an access key |
 | Phone access | Private tunnel (e.g. Tailscale) to the laptop |
 | Interface | Voice-assisted, emotionally aware; understands English + Hinglish, answers in English, calls the user "sir" |
 
 ## Still to decide
 
-- **Emotional TTS:** Kokoro sounds natural but has one speaking style per voice. Chatterbox-Turbo
-  and -Nano can laugh, sigh and take emotion tags, but need 2.9 / 1.9 GB of VRAM: next to the LLM
-  both run out of memory, and on the CPU they are slower than real time. `bench/tts` compares the
-  candidates by ear.
+- **Emotional TTS:** Turbo makes real sounds but has no emotion or pace control, so the tone comes
+  from her words and sounds alone (the mood still sets Kokoro's pace). `bench/tts` compares voices by ear.
 - **SER for Hinglish:** the current model is trained on acted English and is unverified on real
   Hinglish speech; emotion2vec is the likely replacement.
 - **STT speed:** ~3–4 s per utterance on CPU. Moving Whisper to the GPU would cut that, at ~0.6 GB VRAM.
@@ -163,8 +163,7 @@ install is stale or incomplete (its `cuda_v12` libs missing or unreadable) — r
 ### Step 2 — Sofia's model
 
 ```bash
-ollama pull hf.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive:Q4_K_M   # 3.4 GB
-ollama create sofia -f models/Sofia.Modelfile    # adds persona, examples + sampling params
+./scripts/sofia.sh setup                         # pulls the weights (3.4 GB), builds sofia-base + sofia
 python3 -m sofia.chat                            # chat in the terminal; "bye" to exit
 ```
 
@@ -184,6 +183,11 @@ Hinglish questions with English answers, which is what keeps her in English — 
 recommended non-thinking sampling. `sofia/polish.py` strips markdown, emojis and leaked bracket
 instructions, since every reply is spoken aloud. A 4B model still produces the odd reply that misses
 the mood, and its jokes are weak.
+
+**Sounds:** she may write `[laugh]`, `[chuckle]`, `[sigh]` or `[gasp]` where the sound belongs, and
+her voice makes it. The Modelfile asks for them rarely and never when you are hurt; in a test 5 of
+14 replies had one, mostly well placed. `sofia/polish.py` turns stage directions like `*laughs*`
+into tags and drops any other bracketed text.
 
 **Active learning:** Sofia learns while you talk and carries it into every later conversation.
 The model's weights do not change (yet) — after each of your messages a second small prompt
@@ -225,9 +229,10 @@ python3 -m sofia.log export train.jsonl  # chat-format examples: corrections app
 python3 -m unittest discover tests               # language, clean-up, memory + log tests
 ```
 
-Measured on this laptop (4096-token context): ~43–48 tok/s, 100% GPU, ~4.0 GB VRAM in use with the
-model loaded, ~1.9 GB free for TTS. That is above the 3.0–3.5 GB budgeted above, so TTS has to fit
-in ~1.9 GB or run on CPU.
+Measured on this laptop (4096-token context): ~43–48 tok/s, 100% GPU. The source model also loads a
+vision projector Sofia never uses, so `scripts/sofia.sh` builds `sofia-base` from the same weights
+without it (~2.9 GB instead of ~3.8 GB in VRAM) and `sofia` on top of that. The memory prompts run
+on `sofia-base`, which Ollama serves from the same loaded copy.
 
 Tried and rejected: stock `qwen3.5:4b` (refuses), Dolphin 3.0 Llama3.2-3B (fits easily but doesn't
 understand Hinglish). Ruled out on size without testing: Dolphin 3 8B (4.9 GB download).
@@ -235,7 +240,7 @@ understand Hinglish). Ruled out on size without testing: Dolphin 3 8B (4.9 GB do
 ### Step 3 — Voice and phone
 
 ```bash
-./scripts/sofia.sh setup     # .venv + speech stack, Kokoro voice, STT + emotion models, sofia model
+./scripts/sofia.sh setup     # .venv + speech stack, Turbo + Kokoro voices, STT + emotion models, sofia model
 ./scripts/sofia.sh           # start everything: web app with text + voice
 ./scripts/sofia.sh voice     # or talk in the terminal: Enter, speak, Enter
 ./scripts/sofia.sh chat      # text only, in the terminal
@@ -247,15 +252,17 @@ One voice turn runs the whole affective loop:
 ```
 mic → faster-whisper (what you said) ─┐
     → wav2vec2 SER  (how you sounded) ─┴→ Sofia (LLM + memory) → reply
-reply → Kokoro → pace for the mood → speaker
+reply → Chatterbox-Turbo, sounds included (or Kokoro, pace for the mood) → speaker
 ```
 
 - **What you said:** Hindi comes back in Devanagari and English in English; the chat handles both.
 - **How you sounded:** the mood heard in your voice is passed to her as `[The user sounds sad.]` and
   overrides the mood guessed from the words. Below 70 % confidence it is treated as neutral.
-- **Her voice:** soft (slower) when you are sad, lonely or tired; calm when you are stressed,
-  anxious or angry; bright (quicker) when you are happy; playful when you are bored. This
-  follows *your* mood — the model does not yet choose its own style tag as in the diagram above.
+- **Her voice:** Chatterbox-Turbo (`sofia/chatterbox_worker.py`, its own venv and process, ~1.4 GB
+  VRAM, about 4x faster than real time) laughs or sighs where her reply has a sound tag. When it
+  is not installed or fails, Kokoro speaks instead: soft (slower) when you are sad, lonely or
+  tired; calm when you are stressed, anxious or angry; bright (quicker) when you are happy;
+  playful when you are bored.
 - **Timing:** about 9 s from the end of your speech to her reply on this laptop (STT ~4 s).
 - **Microphone level:** at the default input volume this laptop's mic clips on room noise alone and
   nothing is recognised. `wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.2` fixes it; the voice loop

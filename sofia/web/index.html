@@ -111,7 +111,9 @@
   .captions { width: 100%; max-width: 520px; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; }
   .caption { color: var(--dim); font-size: 15px; }
   .caption.her { color: var(--text); font-size: 17px; }
-  .meter { width: 140px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .meter { position: relative; width: 180px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  #meterMark { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffcf8a; }
+  .orb { cursor: pointer; }
   #meter { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s linear; }
   .hint { max-width: 420px; font-size: 13px; color: #ffcf8a; background: #3a2a14; border-radius: 10px; padding: 8px 12px; }
   .call-buttons { display: flex; gap: 36px; margin-top: 8px; }
@@ -161,7 +163,8 @@
   <div class="orb" id="orb"><img src="/icon.svg" alt=""></div>
   <h2>Sofia</h2>
   <div id="callState">connecting…</div>
-  <div class="meter" title="your mic level"><span id="meter"></span></div>
+  <div class="meter" title="your mic level; the line is how loud you must be to be heard"><span id="meter"></span><i id="meterMark"></i></div>
+  <div class="caption" id="callTip">Tap her picture to talk if she doesn't notice you, and again to send.</div>
   <div class="captions"><div class="caption" id="callHeard"></div><div class="caption her" id="callSaid"></div></div>
   <div class="call-proposals" id="callProposals"></div>
   <div class="hint" id="callHint" hidden></div>
@@ -484,7 +487,7 @@ function listen() {
   recorder.onstop = () => { if (!recorder.discard) sendSpeech(new Blob(chunks, { type: recorder.mimeType })); };
   recorder.discard = true;
   recorder.start();
-  Object.assign(calling, { recorder, began: Date.now(), voiced: 0, quiet: 0, barge: 0 });
+  Object.assign(calling, { recorder, began: Date.now(), voiced: 0, quiet: 0, barge: 0, manual: false });
   setCallState(calling.muted ? "muted" : "listening");
 }
 
@@ -552,9 +555,24 @@ async function answerInCall(data, call_, filler = null) {
   if (calling === call_ && calling.state === "speaking") listen();
 }
 
+const FLOOR_TICKS = 60;  // 3 s of levels to tell the room's noise from your voice
+
+function floorOf(levels) {
+  if (!levels.length) return 0.003;
+  const sorted = [...levels].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length * 0.2)];
+}
+
+// The meter in decibels, -60 to -10 dBFS: a quiet mic still moves it.
+function meterAt(value) {
+  return Math.max(0, Math.min(100, (20 * Math.log10(Math.max(value, 1e-6)) + 60) * 2));
+}
+
 function tick() {
   const now = Date.now(), loud = calling.muted ? 0 : level();
-  document.getElementById("meter").style.width = Math.min(100, loud * 900) + "%";
+  const threshold = Math.max(0.004, floorOf(calling.levels) * 2 + 0.002);
+  document.getElementById("meter").style.width = meterAt(loud) + "%";
+  document.getElementById("meterMark").style.left = meterAt(threshold) + "%";
   document.getElementById("orb").style.setProperty("--level", calling.state === "hearing" ? Math.min(1, loud * 12) : 0);
   calling.peak = Math.max(calling.peak, loud);
   if (!calling.muted && now - calling.started > 6000 && calling.peak < SILENT_MIC && callHint.hidden) {
@@ -563,7 +581,6 @@ function tick() {
   }
   if (calling.peak >= SILENT_MIC) callHint.hidden = true;
 
-  const threshold = Math.max(calling.floor * 2.5, 0.012);
   if (calling.state === "listening" || calling.state === "hearing") {
     if (loud > threshold) {
       calling.voiced += TICK;
@@ -571,18 +588,18 @@ function tick() {
       if (calling.state === "listening" && calling.voiced >= START_AFTER) setCallState("hearing");
     } else {
       calling.quiet += TICK;
-      if (calling.state === "listening") {
-        calling.voiced = Math.max(0, calling.voiced - TICK);
-        calling.floor = calling.floor * 0.97 + loud * 0.03;  // the room's own noise
-      }
+      if (calling.state === "listening") calling.voiced = Math.max(0, calling.voiced - TICK);
     }
-    if (calling.state === "hearing" && (calling.quiet >= END_AFTER || now - calling.began > LONGEST)) finishSpeech();
+    // The room's own noise: the quieter end of the last few seconds, while nobody talks.
+    if (calling.state === "listening") calling.levels = [...calling.levels.slice(-FLOOR_TICKS + 1), loud];
+    if (calling.state === "hearing" && !calling.manual && (calling.quiet >= END_AFTER || now - calling.began > LONGEST)) finishSpeech();
+    else if (calling.state === "hearing" && now - calling.began > LONGEST) finishSpeech();
     else if (calling.state === "listening" && now - calling.began > 20000) listen();  // keep recordings short
   } else if (calling.state === "speaking") {
     // What leaks from her own voice into the mic stays low and steady; you starting to talk is
     // sudden. The gaps between your words only slow the count down: echo cancellation also
     // turns you down while she talks.
-    const loudEnough = loud > Math.max(0.035, calling.floor * 4, calling.echo * 2.5);
+    const loudEnough = loud > Math.max(0.035, floorOf(calling.levels) * 4, calling.echo * 2.5);
     if (!calling.barge) calling.echo = calling.echo * 0.95 + loud * 0.05;
     calling.barge = loudEnough ? calling.barge + TICK : Math.max(0, calling.barge - TICK / 2);
     if (calling.barge >= BARGE_AFTER) {
@@ -598,7 +615,8 @@ function tick() {
 async function startCall() {
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    // No automatic gain: in the silences it turns the room's noise up to the level of your voice.
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } });
   } catch (error) {
     return add("note", "Microphone blocked: " + error.message);
   }
@@ -608,7 +626,7 @@ async function startCall() {
   context.createMediaStreamSource(stream).connect(analyser);
   const mic = stream.getAudioTracks()[0].label || "microphone";
   calling = { stream, context, analyser, samples: new Float32Array(analyser.fftSize), mic, muted: false,
-              floor: 0.005, peak: 0, echo: 0, started: Date.now() };
+              levels: [], peak: 0, echo: 0, started: Date.now() };
   calling.timer = setInterval(() => {
     const seconds = Math.floor((Date.now() - calling.started) / 1000);
     document.getElementById("callTimer").textContent = String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
@@ -641,6 +659,17 @@ function endCall() {
   input.focus();
 }
 
+// Tap her picture: start talking when she doesn't notice you, and tap again to send.
+document.getElementById("orb").addEventListener("click", () => {
+  if (!calling || calling.muted) return;
+  if (calling.state === "listening") {
+    Object.assign(calling, { manual: true, voiced: START_AFTER, quiet: 0 });
+    setCallState("hearing");
+    callState.textContent = "hearing you… tap her picture to send";
+  } else if (calling.state === "hearing") {
+    finishSpeech();
+  }
+});
 document.getElementById("callButton").addEventListener("click", startCall);
 document.getElementById("callEnd").addEventListener("click", endCall);
 callMute.addEventListener("click", () => {

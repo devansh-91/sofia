@@ -9,14 +9,15 @@ says only the words around the code (in her Kokoro voice, on the CPU). Nothing s
 her memory or conversation log: those teach her how to talk, not how to code.
 
 Here she can also change things: write files, make folders, move, delete and run commands, each
-only as a proposal the user allows or denies on the page (sofia/actions.py).
+only as a proposal the user allows or denies on the page (sofia/actions.py). A whole coding task
+("agent, ...") goes to OpenCode, behind the same Allow (sofia/agent.py).
 """
 import json
 import os
 import re
 from datetime import datetime
 
-from sofia import actions, ollama, tools
+from sofia import actions, agent, ollama, tools
 from sofia.polish import polish
 
 WORK_MODEL = os.environ.get("SOFIA_WORK_MODEL", "qwen2.5-coder:7b")
@@ -32,6 +33,8 @@ SPOKEN = 350  # characters of the words around the code that she says out loud
 # recognition writes "kaam" as "kam" or "come", and may put her name in front.
 _COMMAND = r"^\W*(?:(?:hey\W+)?sofia\W+)?(?:{})\W*$"
 ENTER = re.compile(_COMMAND.format(r"/kaam|/work|(?:kaam|kam|come|work)\s*mode(?:\s*on)?"), re.I)
+# "agent, <task>": the task goes to OpenCode (sofia/agent.py), which does it end to end.
+AGENT = re.compile(r"^\W*(?:(?:hey\W+)?sofia\W+)?(?:/agent|agent)\b[\s,:.-]*(?P<task>\S.*)$", re.I | re.S)
 LEAVE = re.compile(_COMMAND.format(
     r"/normal|(?:normal|chill|baat)\s*mode|(?:kaam|kam|come|work)\s*mode\s*(?:off|band|khatam)|kaam\s*khatam"), re.I)
 
@@ -119,6 +122,7 @@ class Work:
         self.history: list[dict] = []
         self.looked: list[str] = []  # what she looked at for the latest message
         self.pending = actions.Pending()
+        self.agent = agent.Agent() if agent.available() else None
         self.proposed: list[dict] = []  # cards for what she proposed in the latest message
 
     def decide(self, number: int, allowed: bool) -> tuple[str, str] | None:

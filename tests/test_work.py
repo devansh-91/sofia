@@ -1,6 +1,6 @@
 import unittest
 
-from sofia.work import ENTER, LEAVE, TOOL_NAMES, spoken, text_calls
+from sofia.work import AGENT, ENTER, LEAVE, TOOL_NAMES, spoken, text_calls
 
 
 class SwitchTest(unittest.TestCase):
@@ -12,6 +12,15 @@ class SwitchTest(unittest.TestCase):
         self.assertFalse(ENTER.match("what is kaam mode?"))
         self.assertFalse(ENTER.match("kaam mode off"))
         self.assertFalse(LEAVE.match("I want a normal mode for my app"))
+
+
+class AgentTest(unittest.TestCase):
+    def test_agent_tasks_are_recognised(self):
+        self.assertEqual(AGENT.match("agent, make a todo app").group("task"), "make a todo app")
+        self.assertEqual(AGENT.match("Sofia agent: fix the tests").group("task"), "fix the tests")
+        self.assertEqual(AGENT.match("/agent build it").group("task"), "build it")
+        self.assertIsNone(AGENT.match("what is an agent?"))
+        self.assertIsNone(AGENT.match("agentic coding is cool"))
 
 
 class TextCallsTest(unittest.TestCase):

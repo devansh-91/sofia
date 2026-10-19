@@ -145,7 +145,7 @@
       <p>Write or talk in English or Hinglish — she answers in English.</p>
       <p id="micHint" hidden>Tap the mic to talk, tap again to send — or tap the green phone for a hands-free call.</p>
       <p style="font-size:13px;margin-top:12px">Commands: /good · /say &lt;better reply&gt; · /memory · /forget &lt;number&gt;</p>
-      <p style="font-size:13px">Say "kaam mode" for coding help with a bigger model, "normal mode" to come back.</p>
+      <p style="font-size:13px">Say "kaam mode" for coding help with a bigger model, "normal mode" to come back. In kaam mode, "agent, …" hands a whole task to OpenCode.</p>
     </div>
   </div>
   <form id="form">
@@ -266,7 +266,7 @@ function proposalCard(action) {
   const card = document.createElement("div"), title = document.createElement("div"), buttons = document.createElement("div");
   card.className = "proposal";
   title.className = "proposal-title";
-  title.textContent = "#" + action.id + " · " + action.title;
+  title.textContent = (typeof action.id === "number" ? "#" + action.id + " · " : "") + action.title;
   card.appendChild(title);
   if (action.detail) {
     const detail = document.createElement("pre");
@@ -349,7 +349,8 @@ async function show(data) {
   if (data.mode) setMode(data.mode);
   if (data.command !== undefined) return add("note", data.command);
   if (data.error) return add("note", data.error);
-  if (data.decided) add("note", `#${data.decided.id} ${data.decided.allowed ? "allowed" : "denied"} — ${data.decided.result.split("\n").slice(0, 3).join(" · ")}`);
+  if (data.decided) add("note", (typeof data.decided.id === "number" ? `#${data.decided.id} ` : "") +
+    `${data.decided.allowed ? "allowed" : "denied"} — ${data.decided.result.split("\n").slice(0, 3).join(" · ")}`);
   if (data.markdown) addMarkdown(data.answer); else add("her", data.answer);
   for (const action of data.proposed || []) addProposal(action);
   if (data.care) addHelplines(data.care);

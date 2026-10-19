@@ -22,11 +22,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from sofia import care, ollama, work
+from sofia import agent, care, ollama, work
 from sofia.chat import MODEL, Session
 from sofia.log import ConversationLog
 from sofia.memory import NEUTRAL, Memory
-from sofia.work import ENTER, LEAVE, WORK_MODEL, Work
+from sofia.work import AGENT, ENTER, LEAVE, WORK_MODEL, Work
 
 WEB_PAGE = Path(__file__).parent / "web" / "index.html"
 ICON = Path(__file__).parent / "web" / "icon.svg"
@@ -152,7 +152,10 @@ class Sofia:
             self.work = Work()
             line = "Work mode on, sir. What are we building?"
         else:
+            if self.work.agent:
+                self.work.agent.stop()
             ollama.unload(WORK_MODEL)
+            ollama.unload(agent.MODEL)
             self.work = None
             ollama.preload(MODEL)
             if self.speech:
@@ -163,16 +166,32 @@ class Sofia:
         return {"answer": line, "mode": self.mode, "audio": self._spoken(line, wait=False)}
 
     def _work_reply(self, text: str) -> dict:
+        task = AGENT.match(text)
+        if task and self.work.agent:
+            said, cards = self.work.agent.run(task.group("task"))
+            return self._agent_said(said, cards)
         return self._worked(self.work.answer(text))
+
+    def _agent_said(self, said: str, cards: list[dict]) -> dict:
+        if cards and not said:
+            said = "Here's what I want to change, sir. Allow it and I'll carry on."
+        return {"answer": said, "markdown": True, "looked": [], "proposed": cards, "mode": "work",
+                "audio": self._spoken(work.spoken(said), wait=False)}
 
     def _worked(self, answer: str) -> dict:
         return {"answer": answer, "markdown": True, "looked": self.work.looked, "proposed": self.work.proposed,
                 "mode": "work", "audio": self._spoken(work.spoken(answer), wait=False)}
 
-    def decide(self, number: int, allowed: bool) -> dict:
-        """The user pressed Allow or Deny on one of her proposals."""
+    def decide(self, number: int | str, allowed: bool) -> dict:
+        """The user pressed Allow or Deny on one of her proposals, or one of the agent's."""
         with self.lock:
-            decided = self.work.decide(number, allowed) if self.work else None
+            if self.work and self.work.agent and str(number).startswith("agent-"):
+                answered = self.work.agent.decide(str(number), allowed)
+                if answered is None:
+                    return {"error": "That request is gone (it was already answered, or work mode was left)."}
+                result = "allowed" if allowed else "denied"
+                return {"decided": {"id": number, "allowed": allowed, "result": result}, **self._agent_said(*answered)}
+            decided = self.work.decide(int(number), allowed) if self.work else None
             if decided is None:
                 return {"error": "That proposal is gone (it was already decided, or work mode was left)."}
             result, answer = decided
@@ -320,7 +339,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(self.sofia.chat(text, device=self._device()) if text else {"error": "empty message"})
             elif path == "/api/decide":
                 request = json.loads(body)
-                self._json(self.sofia.decide(int(request.get("id", 0)), request.get("allow") is True))
+                card = request.get("id", 0)
+                card = card if isinstance(card, str) and card.startswith("agent-") else int(card)
+                self._json(self.sofia.decide(card, request.get("allow") is True))
             elif path == "/api/hush":
                 self._json(self.sofia.hush())
             elif path == "/api/hello":
@@ -359,6 +380,9 @@ def main() -> None:
         pass
     finally:
         Handler.sofia.session.reflect()
+        if Handler.sofia.work and Handler.sofia.work.agent:
+            Handler.sofia.work.agent.stop()
+            ollama.unload(agent.MODEL)
         ollama.unload(WORK_MODEL if Handler.sofia.work else MODEL)
 
 

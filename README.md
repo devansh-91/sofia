@@ -262,6 +262,14 @@ will do, the file's new content or the command, and happens only when you press 
 - commands run in a folder of yours for at most a minute, never with sudo, su or pkexec;
 - a proposal runs once: a second Allow for it is refused.
 
+**The agent** (`sofia/agent.py`): in work mode, "agent, make a todo app and test it" hands the whole
+task to [OpenCode](https://opencode.ai) (MIT), a coding agent that reads the project, edits files and
+runs commands until it is done. Sofia runs it headless in `~/sofia-workspace` on her own local weights
+(sofia-base with a 16k context, thinking off), so nothing leaves the laptop. Every edit and command it
+wants becomes a card with the diff or the command, and goes ahead only on Allow. A two-step task
+(write a script, run it) took ~25 s. Qwen2.5-Coder can't drive it (it writes tool calls as text), and
+Qwen3.5 with thinking on spent five minutes on one file.
+
 The 7B model has habits the code works around: it writes tool calls as JSON text (parsed as calls),
 says "I've proposed it" without proposing (sent back once to do it), and retells a command's output
 from memory (her answer shows the real output instead).

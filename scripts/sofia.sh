@@ -19,6 +19,8 @@ SOURCE_MODEL="${SOFIA_SOURCE_MODEL:-hf.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauC
 # The source model without its vision projector, which Sofia never uses: ~0.9 GB of VRAM
 # more for her voice. The sofia model is built FROM it (models/Sofia.Modelfile).
 BASE_MODEL=sofia-base
+# Work mode ("kaam mode"): the bigger model for code, swapped in for sofia and her laughing voice.
+WORK_MODEL="${SOFIA_WORK_MODEL:-qwen2.5-coder:7b}"
 # Her context in tokens, as in models/Sofia.Modelfile. 8192 costs only ~0.14 GB more VRAM than 4096
 # (most of the model's layers keep no KV cache) and leaves room for what she looks up.
 CONTEXT=8192
@@ -111,6 +113,7 @@ setup() {
   ensure_model
   log "Rebuilding the sofia model from models/Sofia.Modelfile..."
   ollama create sofia -f models/Sofia.Modelfile
+  ollama list | grep -qF "$WORK_MODEL" || { log "Downloading the work-mode model (4.7 GB)..."; ollama pull "$WORK_MODEL"; }
   log "Setup done. Start with: ./scripts/sofia.sh"
 }
 

@@ -38,16 +38,18 @@ def chat(model: str, messages: list[dict], **extra) -> str:
     return chat_message(model, messages, **extra)["content"].strip()
 
 
-def preload(model: str) -> None:
+def load(model: str, options: dict | None = None) -> None:
+    """Load `model` into VRAM now. `options` must match the chats' (num_ctx above all), or the
+    first chat loads it all over again."""
+    try:
+        _post("/api/generate", {"model": model, "keep_alive": KEEP_ALIVE, **({"options": options} if options else {})})
+    except OSError:
+        pass  # Ollama is down: the first reply says so
+
+
+def preload(model: str, options: dict | None = None) -> None:
     """Load `model` into VRAM in the background, so her first reply doesn't wait for it."""
-
-    def load() -> None:
-        try:
-            _post("/api/generate", {"model": model, "keep_alive": KEEP_ALIVE})
-        except OSError:
-            pass  # Ollama is down: the first reply says so
-
-    threading.Thread(target=load, daemon=True).start()
+    threading.Thread(target=load, args=(model, options), daemon=True).start()
 
 
 def unload(model: str) -> None:

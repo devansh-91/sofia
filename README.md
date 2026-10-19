@@ -107,15 +107,13 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
 
 ## Still to decide
 
-- **Doing, not only looking:** she can look through files and the web, but not change files or run
-  programs. That needs its own design: a yes from you before anything hard to undo, and limits on
-  what she may run.
+- **Doing in normal mode:** changes (files, commands) are only offered in work mode, behind an Allow
+  button. Her 4B model in normal mode only looks.
 - **Emotional TTS:** Turbo has no emotion or pace setting. Her tone for your mood comes from five
   clones of her voice read at different paces (see "Her voice" below), plus her words and sounds;
   the clones change pace and liveliness, not a sad or happy timbre. `bench/tts` compares voices by ear.
 - **SER for Hinglish:** the current model is trained on acted English and is unverified on real
   Hinglish speech; emotion2vec is the likely replacement.
-- **STT speed:** ~3–4 s per utterance on CPU. Moving Whisper to the GPU would cut that, at ~0.6 GB VRAM.
 
 ### Known-hard problems (be realistic)
 - **Sarcasm** — hardest to both detect (it's context, not just prosody) and to synthesize. Treat as a stretch goal, not v1.
@@ -245,6 +243,26 @@ Three things keep the 4B model from making answers up:
 In tests she then said "I couldn't find the exact rate just now" instead of inventing a petrol price.
 A lookup adds ~2–6 s to a reply.
 
+**Work mode ("kaam mode"):** say or type "kaam mode" (or flip the *kaam* switch) for code and real
+work; "normal mode" brings her back. Her 4B model and Turbo leave the GPU to Qwen2.5-Coder 7B
+(`SOFIA_WORK_MODEL`; ~29 tokens/s here, against ~15 for Qwen3.5 9B, which spills 37 % onto the CPU).
+Switching takes ~9 s. She then answers with whole code blocks (shown with a copy button), reads your
+files and the web to get it right, and says only the words around the code, in Kokoro's voice.
+Nothing from work mode goes into her memory or conversation log.
+
+In work mode she can also **change things**: write a file, make a folder, move, delete, run a
+command. She only proposes them (`sofia/actions.py`); each shows up as a card with exactly what it
+will do, the file's new content or the command, and happens only when you press **Allow**:
+- paths follow the lookup rules (home folder only, nothing hidden); bare names land in
+  `~/sofia-workspace`;
+- delete means the Trash (`gio trash`), so it can be undone;
+- commands run in a folder of yours for at most a minute, never with sudo, su or pkexec;
+- a proposal runs once: a second Allow for it is refused.
+
+The 7B model has habits the code works around: it writes tool calls as JSON text (parsed as calls),
+says "I've proposed it" without proposing (sent back once to do it), and retells a command's output
+from memory (her answer shows the real output instead).
+
 **Web search** goes to a private SearXNG on this laptop when one is running. Start it with
 `./scripts/searxng.sh`; it needs Docker and pulls a few hundred MB once. Through it, Google and Brave
 answer in under a second; she then said "West Indies won by 5 wickets" and "Petrol in Delhi is ₹102.12
@@ -328,8 +346,9 @@ reply → Chatterbox-Turbo in the style for your mood, sounds included (or Kokor
 ```
 
 - **What you said:** Hindi comes back in Devanagari and English in English; the chat handles both.
-- **How you sounded:** the mood heard in your voice is passed to her as `[The user sounds sad.]` and
-  overrides the mood guessed from the words. Below 70 % confidence it is treated as neutral.
+- **How you sounded:** the mood heard in your voice is passed to her as a guess that is often wrong
+  (the model often hears "happy" in a flat or disappointed voice, and she then said "glad to hear" to
+  a wasted weekend). The mood read from your words wins. Below 70 % confidence it is not passed on.
 - **Her voice:** Chatterbox-Turbo (`sofia/chatterbox_worker.py`, its own venv and process, ~1.4 GB
   VRAM, about 4x faster than real time) laughs or sighs where her reply has a sound tag. Its style
   follows your mood: soft when you are sad, lonely or tired (~12% slower); calm when you are
@@ -341,7 +360,15 @@ reply → Chatterbox-Turbo in the style for your mood, sounds included (or Kokor
 - **Start-up:** the LLM loads while the speech models do, so her first reply takes ~5 s instead of
   ~20 s. It stays in VRAM for an hour after her last reply (`SOFIA_KEEP_ALIVE`; Ollama's default
   of 5 minutes made the next reply after a pause wait for it) and is unloaded when she stops.
-- **Timing:** about 9 s from the end of your speech to her reply on this laptop (STT ~4 s).
+- **Speech recognition** runs on the GPU (~0.34 GB VRAM, ~0.25 s a sentence; the CPU took ~2 s),
+  through the cuBLAS / cuDNN wheels in `.venv`. Without room on the GPU it runs on the CPU.
+- **Timing:** her reply is spoken in pieces cut at sentence ends: the first plays while the rest
+  render, and what she learns from your message is worked out while she talks. In a call she starts
+  ~2.5 s after you stop talking.
+- **Call mode:** the green phone button. Talk hands-free: she notices when you stop, answers, and
+  listens again; talk over her and she stops. A "hmm" or "okay, sir" in her voice fills a wait of
+  more than ~1 s (rendered once into `~/.local/share/sofia/voices/fillers`). A mic that stays
+  silent, like a muted Bluetooth headset, gets a hint on how to unmute it.
 - **Microphone level:** at the default input volume this laptop's mic clips on room noise alone and
   nothing is recognised. `wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.2` fixes it; the voice loop
   warns when a recording is clipped.

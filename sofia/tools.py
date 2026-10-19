@@ -37,8 +37,8 @@ SKY = {0: "clear sky", 1: "mostly clear", 2: "partly cloudy", 3: "overcast", 45:
        82: "violent rain showers", 95: "thunderstorm", 96: "thunderstorm with hail", 99: "thunderstorm with hail"}
 
 
-def _short(text: str) -> str:
-    return text if len(text) <= MAX_OUTPUT else text[:MAX_OUTPUT] + f"\n... ({len(text) - MAX_OUTPUT} more characters)"
+def _short(text: str, size: int = MAX_OUTPUT) -> str:
+    return text if len(text) <= size else text[:size] + f"\n... ({len(text) - size} more characters)"
 
 
 def shown(path: Path) -> str:
@@ -121,12 +121,13 @@ def find_files(name: str, folder: str = "~") -> str:
     return _short(header + "\n" + "\n".join(shown(p) for p in found[:30]))
 
 
-def read_file(path: str) -> str:
+def read_file(path: str, size: int = MAX_OUTPUT) -> str:
+    """The file's text, cut at `size` characters (work mode reads whole source files)."""
     file = resolve(path)
     data = file.read_bytes()
     if b"\0" in data[:4096]:
         return f"{shown(file)} is not a text file ({_size(len(data))}), so it can't be read here"
-    return _short(data.decode("utf-8", errors="replace"))
+    return _short(data.decode("utf-8", errors="replace"), size)
 
 
 def _fetch(url: str) -> str:

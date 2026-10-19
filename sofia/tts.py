@@ -14,6 +14,8 @@ SOFIA_VOICE=turbo picks Turbo's own built-in voice instead of a clone.
 import json
 import os
 import re
+import select
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -90,6 +92,12 @@ class Turbo:
             )
         self.lock = threading.Lock()
         self.ready = False
+
+    def started(self) -> bool:
+        """Whether the worker has finished loading, without waiting for it."""
+        if not self.ready and select.select([self.process.stdout], [], [], 0)[0]:
+            self.ready = bool(self._reply())
+        return self.ready
 
     def _reply(self) -> dict | None:
         line = self.process.stdout.readline()
@@ -182,14 +190,52 @@ def pieces(text: str) -> list[str]:
     return found
 
 
-def speak(text: str, mood: str = "neutral") -> tuple[Path, str]:
-    """Render `text` to a WAV file in the style that fits the user's `mood`; return (path, style name)."""
+def speak(text: str, mood: str = "neutral", wait: bool = True) -> tuple[Path, str]:
+    """Render `text` to a WAV file in the style that fits the user's `mood`; return (path, style name).
+    Without `wait`, Kokoro says it when Turbo is still loading."""
     style, speed = STYLES.get(mood, STYLES["neutral"])
     path = audio.temporary_wav()
     turbo = _turbo
-    if not (turbo and turbo.say(text, path, style)):
+    if not (turbo and (wait or turbo.started()) and turbo.say(text, path, style)):
         kokoro(text, path, speed)
     return path, style
+
+
+def stop_turbo() -> None:
+    """Free Turbo's VRAM (for work mode's bigger model); Kokoro speaks until `_load` starts it again."""
+    global _turbo
+    turbo, _turbo = _turbo, None
+    if turbo:
+        with turbo.lock:  # not in the middle of a reply
+            turbo.process.terminate()
+            try:
+                turbo.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                turbo.process.kill()
+
+
+# What she says while a reply is on its way in a call, so the line doesn't go silent.
+FILLERS = ("Hmm.", "Mm-hmm.", "Okay, sir.", "Hmm, let me think.", "Right, sir.")
+FILLER_DIR = VOICE_DIR / "fillers"
+
+
+def fillers() -> dict[str, list[Path]]:
+    """Her fillers in each style, rendered once in the voice she speaks with and kept on disk."""
+    engine = "turbo" if _turbo else "kokoro"
+    found: dict[str, list[Path]] = {}
+    for style, speed in sorted(set(STYLES.values())):
+        found[style] = []
+        for line in FILLERS:
+            slug = re.sub(r"\W+", "-", line.lower()).strip("-")
+            path = FILLER_DIR / f"{engine}-{VOICE}-{style}-{slug}.wav"
+            if not path.exists():
+                FILLER_DIR.mkdir(parents=True, exist_ok=True)
+                rendered = audio.temporary_wav()
+                if not (_turbo and _turbo.say(line, rendered, style)):
+                    kokoro(line, rendered, speed)
+                shutil.move(rendered, path)
+            found[style].append(path)
+    return found
 
 
 def clone(voice: str = VOICE) -> list[Path]:

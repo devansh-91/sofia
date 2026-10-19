@@ -22,10 +22,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from sofia import ollama
+from sofia import ollama, work
 from sofia.chat import MODEL, Session
 from sofia.log import ConversationLog
 from sofia.memory import NEUTRAL, Memory
+from sofia.work import ENTER, LEAVE, WORK_MODEL, Work
 
 WEB_PAGE = Path(__file__).parent / "web" / "index.html"
 ICON = Path(__file__).parent / "web" / "icon.svg"
@@ -58,16 +59,36 @@ class Sofia:
         self.turn = 0  # a new reply stops the rest of the one before from being rendered
         self.audio_dir = Path(tempfile.mkdtemp(prefix="sofia-web-"))
         self.speech = False
+        self.fillers: dict[str, list[Path]] = {}  # style -> her "hmm"s for calls, once rendered
+        self.work: Work | None = None  # set in work mode ("kaam mode")
         if speech:
             try:
                 from sofia import emotion, stt, tts
 
                 stt._load(), emotion._load(), tts._load()
                 self.speech = True
+                threading.Thread(target=self._load_fillers, daemon=True).start()
             except (ImportError, FileNotFoundError) as error:
                 print(f"Speech is off ({error}). Text chat still works; run ./scripts/sofia.sh setup for voice.")
 
-    def _spoken(self, answer: str) -> list[str] | None:
+    def _load_fillers(self) -> None:
+        from sofia import tts
+
+        try:
+            self.fillers = tts.fillers()
+        except Exception as error:  # a call simply has no fillers then
+            print(f"(No fillers for calls: {type(error).__name__}: {error})", flush=True)
+
+    def filler(self, name: str) -> Path | None:
+        return next((path for paths in self.fillers.values() for path in paths if path.name == name), None)
+
+    def style(self) -> str | None:
+        """The style her voice speaks in for the user's current mood."""
+        from sofia import tts
+
+        return tts.STYLES.get(self.session.mood, tts.STYLES["neutral"])[0] if self.speech else None
+
+    def _spoken(self, answer: str, wait: bool = True) -> list[str] | None:
         """Render `answer` to audio, a piece at a time in the background; return the names the
         browser fetches the pieces by, in order. Fetching one waits until it is rendered."""
         if not self.speech:
@@ -88,7 +109,7 @@ class Sofia:
             for name, piece in zip(names, pieces):
                 try:
                     if turn == self.turn:  # else the user has moved on: skip, the fetch gets a 404
-                        wav, _ = tts.speak(piece, mood)
+                        wav, _ = tts.speak(piece, mood, wait)
                         wav.replace(self.audio_dir / name)
                 finally:
                     if name in self.replies:
@@ -112,9 +133,56 @@ class Sofia:
         self.turn += 1
         return {}
 
+    @property
+    def mode(self) -> str:
+        return "work" if self.work else "normal"
+
+    def _switch(self, to_work: bool) -> dict:
+        """Into work mode: her 4B model and Turbo leave the GPU to the bigger model. Out of it:
+        back again, with Kokoro speaking until Turbo has loaded."""
+        if to_work == bool(self.work):
+            line = "We're already in work mode, sir." if self.work else "I'm right here, sir, no work mode on."
+        elif to_work:
+            ollama.unload(MODEL)
+            if self.speech:
+                from sofia import tts
+
+                tts.stop_turbo()
+            ollama.load(WORK_MODEL, {"num_ctx": work.CONTEXT})
+            self.work = Work()
+            line = "Work mode on, sir. What are we building?"
+        else:
+            ollama.unload(WORK_MODEL)
+            self.work = None
+            ollama.preload(MODEL)
+            if self.speech:
+                from sofia import tts
+
+                tts._load()
+            line = "Back to normal, sir. That was fun."
+        return {"answer": line, "mode": self.mode, "audio": self._spoken(line, wait=False)}
+
+    def _work_reply(self, text: str) -> dict:
+        return self._worked(self.work.answer(text))
+
+    def _worked(self, answer: str) -> dict:
+        return {"answer": answer, "markdown": True, "looked": self.work.looked, "proposed": self.work.proposed,
+                "mode": "work", "audio": self._spoken(work.spoken(answer), wait=False)}
+
+    def decide(self, number: int, allowed: bool) -> dict:
+        """The user pressed Allow or Deny on one of her proposals."""
+        with self.lock:
+            decided = self.work.decide(number, allowed) if self.work else None
+            if decided is None:
+                return {"error": "That proposal is gone (it was already decided, or work mode was left)."}
+            result, answer = decided
+            return {"decided": {"id": number, "allowed": allowed, "result": result}, **self._worked(answer)}
+
     def hello(self, device: str) -> dict:
         """She speaks first when the page opens, unless the user was here a moment ago."""
         with self.lock:
+            if self.work:  # her greeting needs her own model, which work mode has unloaded
+                return {}
             self.session.situation.device = device
             greeting = self.session.greet()
             return {"answer": greeting, "audio": self._spoken(greeting)} if greeting else {}
@@ -126,12 +194,17 @@ class Sofia:
         learning = False
         try:
             self.session.situation.device = device
+            if ENTER.match(text) or LEAVE.match(text):
+                return self._switch(bool(ENTER.match(text)))
+            if self.work:
+                return self._work_reply(text)
             result = self.session.command(text)
             if result is not None:
                 return {"command": result}
             answer = self.session.answer(text, sounds)
             learned, self.learned = self.learned, []
-            reply = {"answer": answer, "learned": learned, "looked": self.session.looked, "audio": self._spoken(answer)}
+            reply = {"answer": answer, "learned": learned, "looked": self.session.looked, "audio": self._spoken(answer),
+                     "style": self.style(), "mode": "normal"}
             first = self.replies.get(reply["audio"][0]) if reply["audio"] else None
             threading.Thread(target=self._remember, args=(first,), daemon=True).start()
             learning = True
@@ -216,7 +289,14 @@ class Handler(BaseHTTPRequestHandler):
         elif not self._authorised():
             self._json({"error": "wrong or missing key"}, HTTPStatus.FORBIDDEN)
         elif path == "/api/status":
-            self._json({"speech": self.sofia.speech})
+            fillers = {style: [path.name for path in paths] for style, paths in self.sofia.fillers.items()}
+            self._json({"speech": self.sofia.speech, "fillers": fillers, "mode": self.sofia.mode})
+        elif path.startswith("/filler/"):
+            wav = self.sofia.filler(Path(path).name)
+            if wav and wav.exists():
+                self._send(HTTPStatus.OK, wav.read_bytes(), "audio/wav")
+            else:
+                self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         elif path.startswith("/audio/"):
             wav = self.sofia.audio(Path(path).name)
             if wav:
@@ -238,6 +318,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/chat":
                 text = str(json.loads(body).get("text", "")).strip()
                 self._json(self.sofia.chat(text, device=self._device()) if text else {"error": "empty message"})
+            elif path == "/api/decide":
+                request = json.loads(body)
+                self._json(self.sofia.decide(int(request.get("id", 0)), request.get("allow") is True))
             elif path == "/api/hush":
                 self._json(self.sofia.hush())
             elif path == "/api/hello":
@@ -276,7 +359,7 @@ def main() -> None:
         pass
     finally:
         Handler.sofia.session.reflect()
-        ollama.unload(MODEL)
+        ollama.unload(WORK_MODEL if Handler.sofia.work else MODEL)
 
 
 if __name__ == "__main__":

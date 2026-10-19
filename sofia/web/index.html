@@ -61,6 +61,30 @@
   #mic { background: var(--field); border: 1px solid var(--line); color: var(--text); }
   #mic.recording { background: var(--bad); border-color: var(--bad); animation: pulse 1.2s infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 #e5484d88; } 100% { box-shadow: 0 0 0 12px #e5484d00; } }
+  .proposal { align-self: stretch; margin: 4px 0; padding: 10px 12px; border: 1px solid #5a4a1c; border-radius: 12px; background: #221d10; text-align: left; }
+  .proposal-title { font-size: 14px; font-weight: 600; color: #ffd98a; }
+  .proposal pre { margin: 8px 0 0; max-height: 220px; overflow: auto; padding: 8px 10px; border-radius: 8px; background: #0b0a0f; font: 12.5px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+  .proposal-buttons { display: flex; gap: 8px; margin-top: 10px; }
+  .proposal-buttons button { border: 0; border-radius: 8px; padding: 7px 16px; font: inherit; font-size: 14px; cursor: pointer; color: #fff; }
+  .proposal-buttons .allow { background: #2f9e6a; }
+  .proposal-buttons .deny { background: var(--line); }
+  .proposal-buttons button:disabled { display: none; }
+  .proposal-buttons[data-said]::after { content: attr(data-said); font-size: 13px; color: var(--dim); }
+  .proposal.denied { opacity: .6; }
+  .call-proposals { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 6px; max-height: 32vh; overflow-y: auto; }
+  .call-proposals .proposal.allowed, .call-proposals .proposal.denied { display: none; }
+  .msg.wide { max-width: 94%; white-space: normal; }
+  .msg.wide p { margin: 0 0 8px; white-space: pre-wrap; }
+  .msg.wide p:last-child { margin-bottom: 0; }
+  .msg code { font: 13.5px/1.45 ui-monospace, "JetBrains Mono", Menlo, monospace; background: #00000040; border-radius: 5px; padding: 1px 5px; }
+  .code { margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #0b0a0f; }
+  .code-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; font-size: 12px; color: var(--dim); background: #ffffff08; }
+  .code-head button { border: 0; background: none; color: var(--dim); font: inherit; cursor: pointer; padding: 2px 4px; }
+  .code-head button:hover { color: var(--text); }
+  .code pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
+  .code pre code { background: none; padding: 0; white-space: pre; }
+  .app.work header { background: linear-gradient(90deg, #1d2a1f, var(--panel)); }
+  #modeChip { font-size: 11px; font-weight: 600; letter-spacing: .04em; color: #0d1a10; background: var(--ok); border-radius: 6px; padding: 1px 6px; margin-left: 6px; vertical-align: 2px; }
   #callButton { width: 40px; height: 40px; background: var(--ok); }
   #callButton svg { width: 20px; height: 20px; }
 
@@ -101,9 +125,10 @@
   <header>
     <img src="/icon.svg" alt="">
     <div class="who">
-      <h1>Sofia</h1>
+      <h1>Sofia<span id="modeChip" hidden>KAAM MODE</span></h1>
       <div id="status">connecting…</div>
     </div>
+    <label class="toggle" title="Work mode: a bigger model for code (switching takes a few seconds)">kaam <input type="checkbox" id="workMode"></label>
     <label class="toggle" id="speakLabel" hidden>voice <input type="checkbox" id="speak" checked></label>
     <button type="button" class="round" id="callButton" hidden aria-label="Call Sofia" title="Call Sofia">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>
@@ -116,6 +141,7 @@
       <p>Write or talk in English or Hinglish — she answers in English.</p>
       <p id="micHint" hidden>Tap the mic to talk, tap again to send — or tap the green phone for a hands-free call.</p>
       <p style="font-size:13px;margin-top:12px">Commands: /good · /say &lt;better reply&gt; · /memory · /forget &lt;number&gt;</p>
+      <p style="font-size:13px">Say "kaam mode" for coding help with a bigger model, "normal mode" to come back.</p>
     </div>
   </div>
   <form id="form">
@@ -135,6 +161,7 @@
   <div id="callState">connecting…</div>
   <div class="meter" title="your mic level"><span id="meter"></span></div>
   <div class="captions"><div class="caption" id="callHeard"></div><div class="caption her" id="callSaid"></div></div>
+  <div class="call-proposals" id="callProposals"></div>
   <div class="hint" id="callHint" hidden></div>
   <div class="call-buttons">
     <button type="button" class="round" id="callMute" aria-label="Mute" title="Mute">
@@ -184,10 +211,121 @@ async function call(path, options = {}) {
   return data;
 }
 
+// Work mode answers in Markdown: code blocks, inline code, paragraphs. Built with textContent
+// only, so nothing in a reply can run as HTML.
+function inline(parent, text) {
+  text.split(/(`[^`\n]+`)/).forEach((part) => {
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
+      const code = document.createElement("code");
+      code.textContent = part.slice(1, -1);
+      parent.appendChild(code);
+    } else {
+      parent.appendChild(document.createTextNode(part.replace(/\*\*(.+?)\*\*/g, "$1")));
+    }
+  });
+}
+
+function addMarkdown(text) {
+  const bubble = add("her", "");
+  bubble.classList.add("wide");
+  const parts = text.split(/```([^\n]*)\n([\s\S]*?)(?:```|$)/);
+  parts.forEach((part, index) => {
+    if (index % 3 === 1) return;  // a code block's language, used just below
+    if (index % 3 === 2) {
+      const box = document.createElement("div"), head = document.createElement("div");
+      const pre = document.createElement("pre"), code = document.createElement("code"), copy = document.createElement("button");
+      box.className = "code";
+      head.className = "code-head";
+      head.textContent = parts[index - 1].trim() || "code";
+      copy.textContent = "copy";
+      copy.onclick = () => navigator.clipboard.writeText(part).then(() => { copy.textContent = "copied"; setTimeout(() => (copy.textContent = "copy"), 1500); });
+      head.appendChild(copy);
+      code.textContent = part.replace(/\n$/, "");
+      pre.appendChild(code);
+      box.append(head, pre);
+      bubble.appendChild(box);
+      return;
+    }
+    for (const paragraph of part.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)) {
+      const p = document.createElement("p");
+      inline(p, paragraph);
+      bubble.appendChild(p);
+    }
+  });
+  log.scrollTop = log.scrollHeight;
+  return bubble;
+}
+
+// What she proposes to change (work mode): nothing happens until Allow is pressed here.
+function proposalCard(action) {
+  const card = document.createElement("div"), title = document.createElement("div"), buttons = document.createElement("div");
+  card.className = "proposal";
+  title.className = "proposal-title";
+  title.textContent = "#" + action.id + " · " + action.title;
+  card.appendChild(title);
+  if (action.detail) {
+    const detail = document.createElement("pre");
+    detail.textContent = action.detail;
+    card.appendChild(detail);
+  }
+  buttons.className = "proposal-buttons";
+  for (const [label, allowed] of [["Allow", true], ["Deny", false]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.className = allowed ? "allow" : "deny";
+    button.onclick = () => decide(action.id, allowed);
+    buttons.appendChild(button);
+  }
+  card.appendChild(buttons);
+  card.dataset.id = action.id;
+  return card;
+}
+
+function addProposal(action) {
+  document.getElementById("welcome")?.remove();
+  log.appendChild(proposalCard(action));
+  if (calling) document.getElementById("callProposals").appendChild(proposalCard(action));
+  log.scrollTop = log.scrollHeight;
+}
+
+function decide(id, allowed) {
+  for (const card of document.querySelectorAll(`.proposal[data-id="${id}"]`)) {
+    card.classList.add(allowed ? "allowed" : "denied");
+    card.querySelectorAll("button").forEach((button) => (button.disabled = true));
+    card.querySelector(".proposal-buttons").dataset.said = allowed ? "allowed" : "denied";
+  }
+  const request = () => call("/api/decide", { method: "POST", body: JSON.stringify({ id, allow: allowed }) });
+  if (!calling) return busy(async () => show(await request()), allowed ? "doing it…" : "typing…");
+  const call_ = calling;
+  calling.recorder && ((calling.recorder.discard = true), calling.recorder.stop(), (calling.recorder = null));
+  setCallState("thinking");
+  request().then((data) => calling === call_ && answerInCall(data, call_))
+    .catch((error) => { add("note", "Problem: " + error.message); if (calling === call_) listen(); });
+}
+
+const workMode = document.getElementById("workMode");
+function setMode(mode) {
+  const working = mode === "work";
+  workMode.checked = working;
+  document.getElementById("modeChip").hidden = !working;
+  document.querySelector(".app").classList.toggle("work", working);
+  input.placeholder = working ? "Ask for code, a fix, an explanation…" : "Message Sofia…";
+}
+workMode.addEventListener("change", () => {
+  const command = workMode.checked ? "/kaam" : "/normal";
+  workMode.checked = !workMode.checked;  // until she has switched
+  busy(async () => show(await call("/api/chat", { method: "POST", body: JSON.stringify({ text: command }) })),
+       workMode.checked ? "back to normal…" : "switching to kaam mode…");
+});
+
 async function show(data) {
+  if (data.mode) setMode(data.mode);
   if (data.command !== undefined) return add("note", data.command);
   if (data.error) return add("note", data.error);
-  add("her", data.answer);
+  if (data.decided) add("note", `#${data.decided.id} ${data.decided.allowed ? "allowed" : "denied"} — ${data.decided.result.split("\n").slice(0, 3).join(" · ")}`);
+  if (data.markdown) addMarkdown(data.answer); else add("her", data.answer);
+  for (const action of data.proposed || []) addProposal(action);
   for (const item of data.looked || []) add("learned", "dekha: " + item);
   for (const item of data.learned || []) add("learned", "yaad rakha: " + item);
   if (data.audio?.length && speak.checked) playPieces(data.audio);
@@ -198,7 +336,8 @@ async function show(data) {
 let playing = null;
 
 function fetchPiece(name) {
-  return fetch("/audio/" + name, { headers: { "X-Sofia-Key": key } })
+  const path = name.includes("/") ? name : "/audio/" + name;
+  return fetch(path, { headers: { "X-Sofia-Key": key } })
     .then((response) => (response.ok ? response.blob() : null)).catch(() => null);
 }
 
@@ -293,6 +432,7 @@ const START_AFTER = 150;   // ms of voice before it counts as you talking
 const END_AFTER = 750;     // ms of quiet that ends what you said
 const LONGEST = 30000;     // ms: send it anyway after this long
 const BARGE_AFTER = 300;   // ms of you talking over her before she stops
+const FILLER_AFTER = 900;  // ms of waiting for her reply before she says "hmm"
 const SILENT_MIC = 0.0003; // a level this low for the whole first seconds means the mic is muted or wrong
 let calling = null;
 
@@ -331,29 +471,61 @@ function finishSpeech() {
   calling.recorder = null;
 }
 
+// Her "hmm"s, fetched when a call starts, in each style her voice has.
+async function loadFillers() {
+  const status = await call("/api/status").catch(() => ({}));
+  const clips = {};
+  for (const [style, names] of Object.entries(status.fillers || {})) {
+    clips[style] = (await Promise.all(names.map((name) => fetchPiece("/filler/" + name)))).filter(Boolean).map((blob) => URL.createObjectURL(blob));
+  }
+  return clips;
+}
+
+// One of her fillers, never the one she said last; resolves when it has been said.
+function sayFiller() {
+  const clips = calling.fillers?.[calling.style] || calling.fillers?.warm || [];
+  const choices = clips.filter((clip) => clip !== calling.lastFiller);
+  if (!choices.length) return null;
+  const clip = choices[Math.floor(Math.random() * choices.length)];
+  calling.lastFiller = clip;
+  const sound = new Audio(clip);
+  return new Promise((resolve) => { sound.onended = sound.onerror = resolve; sound.play().catch(resolve); });
+}
+
 async function sendSpeech(blob) {
   const call_ = calling;
+  let filler = null;
+  const waiting = setTimeout(() => { if (calling === call_) filler = sayFiller(); }, FILLER_AFTER);
   try {
     const data = await call("/api/voice", { method: "POST", body: blob });
+    clearTimeout(waiting);
     if (calling !== call_) return;
     if (!data.heard) return listen();
     document.getElementById("callHeard").textContent = "You: " + data.heard;
-    document.getElementById("callSaid").textContent = data.answer || data.command || data.error || "";
     add("me", data.heard + (data.sounds && data.sounds !== "neutral" ? "  (" + data.sounds + ")" : ""));
-    const audio = data.audio;
-    await show({ ...data, audio: null });
-    if (calling !== call_) return;
-    if (audio?.length) {
-      setCallState("speaking");
-      calling.echo = 0;
-      await playPieces(audio);
-    }
-    if (calling === call_ && calling.state === "speaking") listen();
+    await answerInCall(data, call_, filler);
   } catch (error) {
+    clearTimeout(waiting);
     if (calling !== call_) return;
     add("note", "Problem: " + error.message);
     listen();
   }
+}
+
+// Her reply during a call: captions, the chat, then her voice; she listens again after.
+async function answerInCall(data, call_, filler = null) {
+  if (data.style) calling.style = data.style;
+  document.getElementById("callSaid").textContent = data.markdown ? "(code is in the chat)" : data.answer || data.command || data.error || "";
+  const audio = data.audio;
+  await show({ ...data, audio: null });
+  if (calling !== call_) return;
+  if (filler) await filler;
+  if (audio?.length && calling === call_) {
+    setCallState("speaking");
+    calling.echo = 0;
+    await playPieces(audio);
+  }
+  if (calling === call_ && calling.state === "speaking") listen();
 }
 
 function tick() {
@@ -420,11 +592,14 @@ async function startCall() {
   calling.ticker = setInterval(tick, TICK);
   document.getElementById("callMic").textContent = "mic: " + mic;
   document.getElementById("callHeard").textContent = document.getElementById("callSaid").textContent = "";
+  document.getElementById("callProposals").replaceChildren();
   callHint.hidden = true;
   callMute.classList.remove("muted");
   callBox.hidden = false;
   add("note", "call started");
   listen();
+  const call_ = calling;
+  loadFillers().then((clips) => { if (calling === call_) calling.fillers = clips; });
 }
 
 function endCall() {
@@ -464,6 +639,7 @@ document.addEventListener("keydown", (event) => { if (event.key === "Escape") en
     mic.hidden = !(status.speech && navigator.mediaDevices && window.MediaRecorder);
     document.getElementById("micHint").hidden = mic.hidden;
     document.getElementById("callButton").hidden = mic.hidden;
+    setMode(status.mode);
     setStatus("online");
   } catch (error) {
     setStatus("offline", "offline");

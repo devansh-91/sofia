@@ -22,6 +22,12 @@ class FakeSofia:
         (audio_dir / "reply.wav").write_bytes(b"RIFFfake")
         (audio_dir / "secret.txt").write_text("private")
 
+    fillers = {}
+    mode = "normal"
+
+    def filler(self, name):
+        return None
+
     def audio(self, name):
         wav = self.audio_dir / name
         return wav if name == "reply.wav" else None

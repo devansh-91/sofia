@@ -49,9 +49,21 @@ class MoodForTest(unittest.TestCase):
         session = Session.__new__(Session)
         with mock.patch.object(Session, "mood", new_callable=mock.PropertyMock, return_value="neutral"):
             self.assertEqual(session.mood_for("bad weekend, I wasted it and I'm disappointed"), "sad")
-            self.assertEqual(session.mood_for("I got the job!"), "neutral")
+            self.assertEqual(session.mood_for("I got the job!"), "happy")
+            self.assertEqual(session.mood_for("what's up"), "neutral")
         with mock.patch.object(Session, "mood", new_callable=mock.PropertyMock, return_value="angry"):
             self.assertEqual(session.mood_for("I hate my roommate"), "angry")
+
+
+class ReplyMoodTest(unittest.TestCase):
+    def test_her_first_words_set_the_tone_when_the_users_mood_gives_none(self):
+        from sofia.tts import reply_mood
+
+        self.assertEqual(reply_mood("Oh no, sir, I'm sorry."), "sad")
+        self.assertEqual(reply_mood("That's huge, sir!"), "happy")
+        self.assertEqual(reply_mood("Seriously, sir? Nice try."), "bored")
+        self.assertEqual(reply_mood("Hello, sir. What's up?"), "neutral")
+        self.assertEqual(reply_mood("That's huge, sir!", "sad"), "sad")
 
 
 if __name__ == "__main__":

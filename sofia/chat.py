@@ -206,6 +206,10 @@ LOW = re.compile(r"\b(wasted|disappoint\w*|sad|upset|depress\w*|lonely|alone|hur
                  r"tired|exhausted|worst|hate|fail\w*|lost|broke up|breakup|sick|ill|died|passed away|scared|"
                  r"anxious|worried|nervous|terrible|awful|bura|udaas|dukh|pareshaan|tension|rona)\b", re.I)
 
+# Words of good news, read the same way: her voice is bright for "I finally fixed the bug!".
+HIGH = re.compile(r"\b(finally|fixed|passed|won|got (the|a|an|my)|selected|excited|amazing|awesome|great news|"
+                  r"best day|so happy|proud|crushed it|nailed it|did it|cleared|placed|promotion|hired|mast|badhiya)\b", re.I)
+
 _SENTENCE_END = re.compile(r"[.!?…](?=\s)")
 
 
@@ -298,7 +302,11 @@ class Session:
 
     def mood_for(self, text: str) -> str:
         """The mood her answer to `text` is spoken in, before learn() has read the new one."""
-        return "sad" if LOW.search(text) and self.mood in (NEUTRAL, "happy", "bored") else self.mood
+        if LOW.search(text) and self.mood in (NEUTRAL, "happy", "bored"):
+            return "sad"
+        if HIGH.search(text) and self.mood in (NEUTRAL, "bored"):
+            return "happy"
+        return self.mood
 
     def say(self, text: str, sounds: str = NEUTRAL) -> tuple[str, list[str]]:
         """Answer `text`; return (answer, things she learned from it).

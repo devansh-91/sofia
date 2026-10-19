@@ -207,6 +207,22 @@ def pieces(text: str) -> list[str]:
     return found
 
 
+# How her own reply sounds, for when the user's mood gives no lead (most messages): the first piece
+# of the reply sets the style for the rest of it.
+_REPLY_TONES = (
+    ("sad", re.compile(r"\b(oh no|sorry|that stings|that hurts|that's rough|that's hard|that sucks|heavy|awful|ugh)\b", re.I)),
+    ("happy", re.compile(r"!|\b(huge|brilliant|amazing|wonderful|proud|congrat\w*|yay|look at you|love that)\b", re.I)),
+    ("bored", re.compile(r"\[(laugh|chuckle)\]|\b(seriously|oh please|nice try|caught you|drama|admit it|liar)\b", re.I)),
+)
+
+
+def reply_mood(text: str, mood: str = "neutral") -> str:
+    """The mood to speak `text` in: the user's `mood`, or when that is neutral, the reply's own."""
+    if mood != "neutral":
+        return mood
+    return next((tone for tone, words in _REPLY_TONES if words.search(text)), mood)
+
+
 def speak(text: str, mood: str = "neutral", wait: bool = True) -> tuple[Path, str]:
     """Render `text` to a WAV file in the style that fits the user's `mood`; return (path, style name).
     Without `wait`, Kokoro says it when Turbo is still loading."""
@@ -267,7 +283,7 @@ def stop_turbo() -> None:
 
 
 # What she says while a reply is on its way in a call, so the line doesn't go silent.
-FILLERS = ("Hmm.", "Mm-hmm.", "Okay, sir.", "Hmm, let me think.", "Right, sir.")
+FILLERS = ("Okay, sir.", "Let me think.", "Right, sir.", "One second, sir.")
 FILLER_DIR = VOICE_DIR / "fillers"
 
 

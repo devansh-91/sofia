@@ -80,7 +80,7 @@ ensure_model() {
     log "Building the sofia model..."
     ollama create sofia -f models/Sofia.Modelfile
     # The tuned brain (scripts/finetune.sh) carries the same persona, without the few-shot examples.
-    if ollama list | grep -q '^sofia-tuned-base:'; then
+    if ollama show sofia-tuned-base >/dev/null 2>&1; then
       local tuned; tuned="$(mktemp)"
       python3 scripts/tuned-modelfile.py >"$tuned"
       ollama create sofia-tuned -f "$tuned"

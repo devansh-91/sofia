@@ -653,7 +653,8 @@ const START_AFTER = 150;   // ms of voice before it counts as you talking
 const END_AFTER = 750;     // ms of quiet that ends what you said
 const LONGEST = 30000;     // ms: send it anyway after this long
 const BARGE_AFTER = 300;   // ms of you talking over her before she stops
-const FILLER_AFTER = 900;  // ms of waiting for her reply before she says "hmm"
+const FILLER_AFTER = 2500; // ms of waiting for her reply before she says "hmm": only when she is slow (a lookup)
+const FILLER_GAP = 4;      // turns at least between two fillers
 const SILENT_MIC = 0.0003; // a level this low for the whole first seconds means the mic is muted or wrong
 let calling = null;
 
@@ -705,11 +706,13 @@ async function loadFillers() {
 
 // One of her fillers, never the one she said last; resolves when it has been said.
 function sayFiller() {
+  if (calling.turn - (calling.fillerTurn ?? -FILLER_GAP) < FILLER_GAP) return null;
   const clips = calling.fillers?.[calling.style] || calling.fillers?.warm || [];
   const choices = clips.filter((clip) => clip !== calling.lastFiller);
   if (!choices.length) return null;
   const clip = choices[Math.floor(Math.random() * choices.length)];
   calling.lastFiller = clip;
+  calling.fillerTurn = calling.turn;
   const sound = new Audio(clip);
   return new Promise((resolve) => { sound.onended = sound.onerror = resolve; sound.play().catch(resolve); });
 }

@@ -381,6 +381,10 @@ class Voice:
         threading.Thread(target=self._render, daemon=True).start()
 
     def add(self, piece: str) -> str:
+        from sofia import tts
+
+        if not self.names:  # her first words set the tone of the whole reply
+            self.mood = tts.reply_mood(piece, self.mood)
         name = f"{secrets.token_hex(8)}.wav"
         self.sofia.replies[name] = threading.Event()
         for old in list(self.sofia.replies)[:-KEPT_REPLIES]:

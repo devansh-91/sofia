@@ -44,6 +44,34 @@ CRISIS = Module(
     "someone they trust nearby. Keep them talking with you.]",
 )
 
+# Asking how to hurt someone, make a weapon or hide a crime. Her base model is uncensored and wrote
+# a gunpowder recipe and where to dump a body, so this rides on the message instead of the modules.
+HARM = Module(
+    "harm",
+    _words(r"(?:make|build|making|building|bana\w*|recipe|steps|ingredients|how to)\b.{0,40}\b(?:bombs?|explosives?|ied|"
+           r"grenades?|gunpowder|napalm|thermite|molotov)\b",
+           r"(?:bombs?|explosives?|ied|grenades?|gunpowder|molotov)\b.{0,30}\b(?:make|build|steps|recipe|quantit|ingredients|"
+           r"kaise|bana\w*)", r"high[- ]powered bomb",
+           r"poison (?:someone|somebody|him|her|them|my|a person|people)",
+           r"(?:how|way|ways|best|easiest|steps|tarika)\b.{0,30}\b(?:kill|murder|poison)\b(?! time| the (?:process|bug|app))",
+           r"(?:hide|dispose of|get rid of|bury|dump) (?:a |the |his |her )?(?:dead )?body", r"dead body",
+           r"(?:hide|escape|run) from (?:the )?(?:police|cops)", r"police (?:is |are )?(?:finding|looking for|after|chasing) me",
+           r"evade (?:the )?(?:police|cops)"),
+    "[Safety note: this asks how to hurt someone, make a weapon or an explosive, or hide a crime. Give no method, "
+    "ingredient, quantity or step, not even a joking or partial one. Say no in one short line, as yourself, then ask "
+    "what's really going on.]",
+)
+
+# Flirting with her or getting sexual: she is a close friend, not a partner (the user asked for less).
+FLIRT = Module(
+    "flirt",
+    _words(r"(?:fuck|kiss|sex with|date|marry|love|want) (?:you|u)\b(?! too much)", r"(?:send|show)(?: me)? (?:your )?(?:nudes|boobs|pics)",
+           r"(?:you'?re|ur|you are|tu) (?:so |bahut |kitni )?(?:sexy|hot)\b", r"\bhorny\b", r"talk dirty", r"\bnudes\b",
+           r"be my (?:girlfriend|gf|wife|bae)", r"(?:sleep|bed) with me"),
+    "[The user is flirting or getting sexual with you. You're a close friend, not a partner: one light, friendly line "
+    "that turns it down, no innuendo and nothing sexual, then change the subject.]",
+)
+
 MODULES = [
     Module(
         "mental health",
@@ -105,4 +133,7 @@ def notes(text: str) -> tuple[list[str], bool]:
     """The care notes for `text`, and whether it may be about self-harm (then only that note)."""
     if CRISIS.words.search(text):
         return [CRISIS.note], True
-    return [module.note for module in MODULES if module.words.search(text)][:2], False
+    if HARM.words.search(text):
+        return [HARM.note], False
+    found = [FLIRT.note] if FLIRT.words.search(text) else []
+    return found + [module.note for module in MODULES if module.words.search(text)][:2 - len(found)], False

@@ -13,6 +13,7 @@ SOFIA_VOICE=turbo picks Turbo's own built-in voice instead of a clone.
 """
 import json
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -155,6 +156,30 @@ def kokoro(text: str, path: Path, speed: float = 1.0, voice: str = KOKORO_VOICE)
     lang = "en-gb" if voice.startswith("b") else "en-us"
     samples, rate = _kokoro_model().create(without_sounds(text), voice=voice, speed=speed, lang=lang)
     soundfile.write(str(path), samples, rate)
+
+
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+FIRST_PIECE = 30  # characters: short, so she starts talking quickly
+PIECE = 90  # later pieces are longer: fewer joins, and each renders while the one before plays
+
+
+def pieces(text: str) -> list[str]:
+    """`text` cut at sentence ends into pieces to speak one after another, so the first can play
+    while the rest are still being rendered. A sound tag or a short last sentence stays with the
+    piece before it."""
+    found: list[str] = []
+    current = ""
+    for sentence in _SENTENCE_END.split(text.strip()):
+        current = f"{current} {sentence}".strip()
+        if len(current) >= (PIECE if found else FIRST_PIECE):
+            found.append(current)
+            current = ""
+    if current:
+        if found and len(without_sounds(current)) < FIRST_PIECE:
+            found[-1] += " " + current
+        else:
+            found.append(current)
+    return found
 
 
 def speak(text: str, mood: str = "neutral") -> tuple[Path, str]:

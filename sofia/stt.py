@@ -6,6 +6,10 @@ from pathlib import Path
 # "small" is the largest model that stays comfortably faster than real time on this CPU.
 MODEL_SIZE = os.environ.get("SOFIA_STT_MODEL", "small")
 
+# One per core, not per hyperthread: on the 8-core / 12-thread laptop 8 threads hear a sentence
+# ~0.5 s sooner than 12, which counts in a call.
+THREADS = int(os.environ.get("SOFIA_STT_THREADS", min(8, os.cpu_count() or 4)))
+
 # For Hindi speech: keeps English words in the mix instead of translating them away.
 _PROMPT = "Yeh ek Hinglish conversation hai. यह हिंदी और English की बातचीत है।"
 # Whisper hallucinates these on silence or noise — and it parrots its own prompt.
@@ -20,7 +24,7 @@ def _load():
     if _model is None:
         from faster_whisper import WhisperModel
 
-        _model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=os.cpu_count() or 4)
+        _model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=THREADS)
     return _model
 
 

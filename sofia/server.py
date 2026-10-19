@@ -30,7 +30,7 @@ WEB_PAGE = Path(__file__).parent / "web" / "index.html"
 ICON = Path(__file__).parent / "web" / "icon.svg"
 KEY_PATH = Path(os.environ.get("SOFIA_KEY_FILE", "~/.local/share/sofia/access-key")).expanduser()
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-KEPT_REPLIES = 20  # spoken replies kept on disk for the browser to fetch
+KEPT_REPLIES = 40  # spoken pieces of replies kept on disk for the browser to fetch
 
 
 def access_key() -> str:
@@ -52,7 +52,8 @@ class Sofia:
         ollama.preload(MODEL)  # alongside the speech models, which take longer
         self.session = Session(Memory(), ConversationLog())
         self.lock = threading.Lock()  # one reply at a time: a single model, a single conversation
-        self.replies: list[Path] = []
+        self.replies: dict[str, threading.Event] = {}  # spoken pieces by name: set once rendered
+        self.turn = 0  # a new reply stops the rest of the one before from being rendered
         self.audio_dir = Path(tempfile.mkdtemp(prefix="sofia-web-"))
         self.speech = False
         if speech:
@@ -64,20 +65,50 @@ class Sofia:
             except (ImportError, FileNotFoundError) as error:
                 print(f"Speech is off ({error}). Text chat still works; run ./scripts/sofia.sh setup for voice.")
 
-    def _spoken(self, answer: str) -> str | None:
-        """Render `answer` to audio; return the name the browser fetches it by."""
+    def _spoken(self, answer: str) -> list[str] | None:
+        """Render `answer` to audio, a piece at a time in the background; return the names the
+        browser fetches the pieces by, in order. Fetching one waits until it is rendered."""
         if not self.speech:
             return None
         from sofia import tts
 
-        wav, _ = tts.speak(answer, self.session.mood)
-        kept = self.audio_dir / f"{secrets.token_hex(8)}.wav"
-        wav.replace(kept)
-        self.replies.append(kept)
-        for old in self.replies[:-KEPT_REPLIES]:
-            old.unlink(missing_ok=True)
-        del self.replies[:-KEPT_REPLIES]
-        return kept.name
+        self.turn += 1
+        turn, mood = self.turn, self.session.mood
+        pieces = tts.pieces(answer)
+        names = [f"{secrets.token_hex(8)}.wav" for _ in pieces]
+        for name in names:
+            self.replies[name] = threading.Event()
+        for old in list(self.replies)[:-KEPT_REPLIES]:
+            (self.audio_dir / old).unlink(missing_ok=True)
+            self.replies.pop(old).set()
+
+        def render() -> None:
+            for name, piece in zip(names, pieces):
+                try:
+                    if turn == self.turn:  # else the user has moved on: skip, the fetch gets a 404
+                        wav, _ = tts.speak(piece, mood)
+                        wav.replace(self.audio_dir / name)
+                finally:
+                    if name in self.replies:
+                        self.replies[name].set()
+                    else:  # dropped as old while it rendered
+                        (self.audio_dir / name).unlink(missing_ok=True)
+
+        threading.Thread(target=render, daemon=True).start()
+        return names
+
+    def audio(self, name: str) -> Path | None:
+        """A spoken piece, once rendered; None for anything else."""
+        rendered = self.replies.get(name)
+        if rendered is None or not rendered.wait(timeout=120):
+            return None
+        wav = self.audio_dir / name
+        return wav if wav.exists() else None
+
+    def hush(self) -> dict:
+        """The user talked over her: stop rendering the rest of what she was saying."""
+        self.turn += 1
+        return {}
 
     def hello(self, device: str) -> dict:
         """She speaks first when the page opens, unless the user was here a moment ago."""
@@ -155,8 +186,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/status":
             self._json({"speech": self.sofia.speech})
         elif path.startswith("/audio/"):
-            wav = self.sofia.audio_dir / Path(path).name
-            if wav in self.sofia.replies and wav.exists():
+            wav = self.sofia.audio(Path(path).name)
+            if wav:
                 self._send(HTTPStatus.OK, wav.read_bytes(), "audio/wav")
             else:
                 self._json({"error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -175,6 +206,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/chat":
                 text = str(json.loads(body).get("text", "")).strip()
                 self._json(self.sofia.chat(text, device=self._device()) if text else {"error": "empty message"})
+            elif path == "/api/hush":
+                self._json(self.sofia.hush())
             elif path == "/api/hello":
                 self._json(self.sofia.hello(self._device()))
             elif path == "/api/voice" and self.sofia.speech:

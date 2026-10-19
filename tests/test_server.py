@@ -24,6 +24,7 @@ class FakeSofia:
         self.audio_dir = audio_dir
         (audio_dir / "reply.wav").write_bytes(b"RIFFfake")
         (audio_dir / "secret.txt").write_text("private")
+        self.known = ["User likes chai."]
 
     fillers = {}
     mode = "normal"
@@ -40,6 +41,31 @@ class FakeSofia:
 
     def hello(self, device):
         return {"answer": f"hello, {device}", "audio": None}
+
+    def settings(self):
+        return {"voice": "turbo:af_heart", "memory": list(self.known)}
+
+    def change(self, voice=None, brain=None):
+        self.changed = (voice, brain)
+        return self.settings()
+
+    def memory(self, forget=None, add=""):
+        if forget == "all":
+            self.known = []
+        elif forget:
+            self.known.pop(forget - 1)
+        if add:
+            self.known.append(add)
+        return self.settings()
+
+    def history(self):
+        return [{"time": "2026-10-19T18:00:00", "user": "hi", "sofia": "Hey, sir."}]
+
+    def forget_history(self):
+        return {"ok": True}
+
+    def voice(self, upload, device="laptop", amend=False):
+        return {"heard": "amended" if amend else "said"}
 
 
 class ServerTest(unittest.TestCase):
@@ -100,6 +126,22 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.request("/audio/reply.wav", key="right-key"), (200, b"RIFFfake"))
         self.assertEqual(self.request("/audio/secret.txt", key="right-key")[0], 404)
         self.assertEqual(self.request("/audio/..%2fsecret.txt", key="right-key")[0], 404)
+
+    def test_settings_memory_and_history_need_the_key(self):
+        for path in ("/api/settings", "/api/history", "/api/docs"):
+            self.assertEqual(self.request(path)[0], 403)
+        for path in ("/api/settings", "/api/memory", "/api/history/clear", "/api/data/clear", "/api/docs/remove"):
+            self.assertEqual(self.request(path, data=b"{}")[0], 403)
+
+    def test_settings_and_memory_round_trip(self):
+        status, body = self.request("/api/settings", key="right-key", data=json.dumps({"voice": "kokoro:af_sky"}).encode())
+        self.assertEqual((status, Handler.sofia.changed), (200, ("kokoro:af_sky", None)))
+        body = json.loads(self.request("/api/memory", key="right-key", data=b'{"add": "User runs 5k."}')[1])
+        self.assertEqual(body["memory"], ["User likes chai.", "User runs 5k."])
+        body = json.loads(self.request("/api/memory", key="right-key", data=b'{"forget": 1}')[1])
+        self.assertEqual(body["memory"], ["User runs 5k."])
+        turns = json.loads(self.request("/api/history", key="right-key")[1])["turns"]
+        self.assertEqual(turns[0]["sofia"], "Hey, sir.")
 
     def test_voice_is_unavailable_without_speech(self):
         self.assertEqual(self.request("/api/voice", key="right-key", data=b"audio")[0], 404)

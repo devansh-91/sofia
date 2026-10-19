@@ -121,6 +121,7 @@ setup() {
   log "Rebuilding the sofia model from models/Sofia.Modelfile..."
   ollama create sofia -f models/Sofia.Modelfile
   ollama list | grep -qF "$WORK_MODEL" || { log "Downloading the work-mode model (4.7 GB)..."; ollama pull "$WORK_MODEL"; }
+  ollama list | grep -q '^nomic-embed-text' || { log "Downloading the model that reads your documents (0.3 GB)..."; ollama pull nomic-embed-text; }
   log "Setup done. Start with: ./scripts/sofia.sh"
 }
 

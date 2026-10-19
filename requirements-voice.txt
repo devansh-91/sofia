@@ -11,3 +11,4 @@ transformers>=5,<6       # speech emotion recognition (wav2vec2)
 torch>=2.14,<3
 soundfile>=0.13
 numpy>=2
+pypdf>=5,<7               # reading PDFs she answers from (sofia/docs.py)

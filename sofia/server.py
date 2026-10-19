@@ -72,7 +72,10 @@ class Sofia:
 
                 stt._load(), emotion._load()
                 voice = settings.load()["voice"]
-                tts.use(voice) if voice in dict(tts.PACKAGES) else tts._load()
+                if voice in dict(tts.PACKAGES):
+                    tts.use(voice)
+                else:
+                    tts._load()
                 self.speech = True
                 threading.Thread(target=self._load_fillers, daemon=True).start()
             except (ImportError, FileNotFoundError) as error:
@@ -358,7 +361,7 @@ class Sofia:
             return {"heard": ""}
         heard = time.monotonic()
         earlier = None
-        if amend:
+        if amend and not self.work:  # work mode keeps its own conversation
             with self.lock:
                 earlier = self.session.retract()
         reply = self.chat(f"{earlier} {text}" if earlier else text, sounds, device)

@@ -61,7 +61,7 @@
   #mic { background: var(--field); border: 1px solid var(--line); color: var(--text); }
   #mic.recording { background: var(--bad); border-color: var(--bad); animation: pulse 1.2s infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 #e5484d88; } 100% { box-shadow: 0 0 0 12px #e5484d00; } }
-  @media (max-width: 460px) { .toggle { font-size: 0; gap: 0; } header { gap: 8px; } }
+  @media (max-width: 460px) { header { gap: 8px; } .who h1 { font-size: 16px; } }
   #settingsButton { width: 40px; height: 40px; background: var(--field); border: 1px solid var(--line); color: var(--text); }
   #settingsButton svg { width: 20px; height: 20px; }
   .sheet { position: fixed; inset: 0; z-index: 9; display: flex; justify-content: center; background: #0008; }
@@ -160,7 +160,6 @@
       <div id="status">connecting…</div>
     </div>
     <label class="toggle" title="Work mode: a bigger model for code (switching takes a few seconds)">kaam <input type="checkbox" id="workMode"></label>
-    <label class="toggle" id="speakLabel" hidden>voice <input type="checkbox" id="speak" checked></label>
     <button type="button" class="round" id="settingsButton" aria-label="Settings" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
     </button>
@@ -195,6 +194,10 @@
       <h3>Her voice</h3>
       <div class="choices" id="voiceList"></div>
       <p class="dim" id="voiceNote">"With laughs" voices run on the GPU and can laugh and sigh; the first switch to a new one takes about a minute. "Light" voices run on the CPU.</p>
+    </section>
+    <section id="speakSection" hidden>
+      <h3>Typed chats</h3>
+      <label class="toggle">speak her replies out loud <input type="checkbox" id="speak"></label>
     </section>
     <section>
       <h3>Her brain</h3>
@@ -247,6 +250,9 @@
 const log = document.getElementById("log"), form = document.getElementById("form"), input = document.getElementById("text");
 const mic = document.getElementById("mic"), send = document.getElementById("send"), speak = document.getElementById("speak");
 const status = document.getElementById("status");
+// Whether typed replies are spoken: a per-browser choice (the phone may be in a quiet room).
+try { speak.checked = localStorage.getItem("sofiaSpeak") !== "off"; } catch { speak.checked = true; }
+speak.addEventListener("change", () => { try { localStorage.setItem("sofiaSpeak", speak.checked ? "on" : "off"); } catch {} });
 
 // The key arrives in the link once, then lives in this browser only.
 const fromLink = new URLSearchParams(location.search).get("key");
@@ -268,10 +274,14 @@ function add(kind, text) {
   return bubble;
 }
 
+// Her typing dots. Unlike a message they leave the welcome note up: a hello that turns out to be
+// nothing (she saw you a moment ago) shouldn't wipe it.
 function typing() {
-  const bubble = add("her", "");
-  bubble.classList.add("typing");
+  const bubble = document.createElement("div");
+  bubble.className = "msg her typing";
   bubble.innerHTML = "<span></span><span></span><span></span>";
+  log.appendChild(bubble);
+  log.scrollTop = log.scrollHeight;
   return bubble;
 }
 
@@ -897,7 +907,7 @@ document.addEventListener("keydown", (event) => {
   }
   try {
     const status = await call("/api/status");
-    document.getElementById("speakLabel").hidden = !status.speech;
+    document.getElementById("speakSection").hidden = !status.speech;
     // Browsers only hand out the microphone on https or localhost.
     mic.hidden = !(status.speech && navigator.mediaDevices && window.MediaRecorder);
     document.getElementById("micHint").hidden = mic.hidden;

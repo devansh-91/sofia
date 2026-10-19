@@ -30,7 +30,8 @@ class HistoryTest(unittest.TestCase):
     def test_history_is_newest_first_and_can_be_deleted(self):
         with tempfile.TemporaryDirectory() as directory:
             log = ConversationLog(Path(directory) / "log.jsonl")
-            first, second = log.turn("hi", "Hey, sir.", "english"), log.turn("bye", "Bye, sir.", "english")
+            first = log.turn("hi", "Hey, sir.", "english")
+            log.turn("bye", "Bye, sir.", "english")
             log.feedback(first, "good")
             self.assertEqual([t["user"] for t in log.history()], ["bye", "hi"])
             log.clear()

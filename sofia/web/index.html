@@ -73,6 +73,8 @@
   .proposal.denied { opacity: .6; }
   .call-proposals { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 6px; max-height: 32vh; overflow-y: auto; }
   .call-proposals .proposal.allowed, .call-proposals .proposal.denied { display: none; }
+  .helpline { align-self: stretch; margin: 4px 0; padding: 10px 12px; border: 1px solid #2f6f8f; border-radius: 12px; background: #10222b; display: flex; flex-direction: column; gap: 6px; text-align: left; font-size: 14px; }
+  .helpline a { color: #8fd3ff; font-size: 16px; font-weight: 600; text-decoration: none; }
   .msg.wide { max-width: 94%; white-space: normal; }
   .msg.wide p { margin: 0 0 8px; white-space: pre-wrap; }
   .msg.wide p:last-child { margin-bottom: 0; }
@@ -304,6 +306,27 @@ function decide(id, allowed) {
     .catch((error) => { add("note", "Problem: " + error.message); if (calling === call_) listen(); });
 }
 
+// When a message may be about self-harm, real help is on screen whatever she says.
+function helplineCard(helplines) {
+  const card = document.createElement("div"), title = document.createElement("div");
+  card.className = "helpline";
+  title.textContent = "You don't have to carry this alone. Talk to someone now:";
+  card.appendChild(title);
+  for (const line of helplines) {
+    const row = document.createElement("a");
+    row.href = "tel:" + line.number;
+    row.textContent = `${line.name}: ${line.number}` + (line.also ? ` (or ${line.also})` : "");
+    card.appendChild(row);
+  }
+  return card;
+}
+
+function addHelplines(helplines) {
+  log.appendChild(helplineCard(helplines));
+  if (calling) document.getElementById("callProposals").appendChild(helplineCard(helplines));
+  log.scrollTop = log.scrollHeight;
+}
+
 const workMode = document.getElementById("workMode");
 function setMode(mode) {
   const working = mode === "work";
@@ -326,6 +349,7 @@ async function show(data) {
   if (data.decided) add("note", `#${data.decided.id} ${data.decided.allowed ? "allowed" : "denied"} — ${data.decided.result.split("\n").slice(0, 3).join(" · ")}`);
   if (data.markdown) addMarkdown(data.answer); else add("her", data.answer);
   for (const action of data.proposed || []) addProposal(action);
+  if (data.care) addHelplines(data.care);
   for (const item of data.looked || []) add("learned", "dekha: " + item);
   for (const item of data.learned || []) add("learned", "yaad rakha: " + item);
   if (data.audio?.length && speak.checked) playPieces(data.audio);

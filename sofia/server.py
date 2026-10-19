@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from sofia import ollama, work
+from sofia import care, ollama, work
 from sofia.chat import MODEL, Session
 from sofia.log import ConversationLog
 from sofia.memory import NEUTRAL, Memory
@@ -204,7 +204,7 @@ class Sofia:
             answer = self.session.answer(text, sounds)
             learned, self.learned = self.learned, []
             reply = {"answer": answer, "learned": learned, "looked": self.session.looked, "audio": self._spoken(answer),
-                     "style": self.style(), "mode": "normal"}
+                     "style": self.style(), "mode": "normal", **({"care": care.HELPLINES} if self.session.crisis else {})}
             first = self.replies.get(reply["audio"][0]) if reply["audio"] else None
             threading.Thread(target=self._remember, args=(first,), daemon=True).start()
             learning = True

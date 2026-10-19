@@ -9,11 +9,11 @@ import re
 from datetime import datetime, timedelta
 from typing import Callable
 
-from sofia import ollama, tools
+from sofia import care, ollama, tools
 from sofia.lang import ENGLISH, HINGLISH, REPLY_INSTRUCTION, detect
 from sofia.log import GOOD, ConversationLog
 from sofia.memory import FACTS, MOODS, NEUTRAL, NONE, Memory
-from sofia.polish import fit_sounds, polish
+from sofia.polish import fit_sounds, polish, without_sounds
 from sofia.situation import LAST_TIME_TURNS, Situation
 
 MODEL = os.environ.get("SOFIA_MODEL", "sofia")
@@ -102,6 +102,7 @@ def reply(
     heard = f"[Their tone of voice might be {sounds}, but that guess is often wrong: go by what they say.]" if sounds != NEUTRAL else ""
     # Notes ride only on the newest message, so they are never repeated in history.
     notes = situation.notes() if situation else []
+    notes += care.notes(text)[0]  # counsellor's skills for feelings, relationships, a crisis
     if looked is not None and CURRENT.search(text):
         notes.append(LOOK_IT_UP)
     if looked is not None and FILES.search(text):
@@ -193,6 +194,7 @@ class Session:
         self.last_id = ""
         self.unreflected: list[dict] = []
         self.looked: list[str] = []  # what she looked up for the latest message
+        self.crisis = False  # the latest message may be about self-harm: the page shows the helpline
         self.unremembered: tuple[str, str] | None = None  # (text, sounds) answered but not yet learned from
 
     @property
@@ -219,7 +221,10 @@ class Session:
         )
         self.looked = []
         answer = reply(self.history, text, self.memory, curious, sounds, self.situation, self.looked)
-        answer = self.history[-1]["content"] = fit_sounds(answer, self.mood)
+        self.crisis = care.notes(text)[1]
+        # No laugh or sigh in an answer about self-harm, whatever the model wrote.
+        answer = care.spelled(answer)
+        answer = self.history[-1]["content"] = without_sounds(answer) if self.crisis else fit_sounds(answer, self.mood)
         self.unremembered = (text, sounds)
         return answer
 
@@ -230,7 +235,9 @@ class Session:
         # learn() keeps a praised reply as an example; the log records praise and criticism.
         learned, reaction = self.memory.learn(text, self.language, self.last, heard_mood=sounds)
         # learn() has just read the user's mood: drop a sound that doesn't fit it.
-        answer = self.history[-1]["content"] = fit_sounds(self.history[-1]["content"], self.mood)
+        if not self.crisis:
+            self.history[-1]["content"] = fit_sounds(self.history[-1]["content"], self.mood)
+        answer = self.history[-1]["content"]
         if reaction != NONE:
             self.log.feedback(self.last_id, reaction)
         self.last = {"user": text, "sofia": answer, "language": ENGLISH}

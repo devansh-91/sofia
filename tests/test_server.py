@@ -23,8 +23,11 @@ class FakeSofia:
         self.replies[0].write_bytes(b"RIFFfake")
         (audio_dir / "secret.txt").write_text("private")
 
-    def chat(self, text, sounds="neutral"):
+    def chat(self, text, sounds="neutral", device="laptop"):
         return {"answer": f"echo: {text}", "learned": [], "mood": "neutral", "audio": None}
+
+    def hello(self, device):
+        return {"answer": f"hello, {device}", "audio": None}
 
 
 class ServerTest(unittest.TestCase):
@@ -43,8 +46,10 @@ class ServerTest(unittest.TestCase):
         cls.server.server_close()
         cls.directory.cleanup()
 
-    def request(self, path, key=None, data=None):
+    def request(self, path, key=None, data=None, agent=None):
         headers = {"X-Sofia-Key": key} if key else {}
+        if agent:
+            headers["User-Agent"] = agent
         try:
             with urllib.request.urlopen(urllib.request.Request(self.url + path, data=data, headers=headers)) as response:
                 return response.status, response.read()
@@ -70,6 +75,14 @@ class ServerTest(unittest.TestCase):
         status, body = self.request("/api/chat", key="right-key", data=json.dumps({"text": "Kya haal hai?"}).encode())
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["answer"], "echo: Kya haal hai?")
+
+    def test_hello_knows_the_device(self):
+        phone = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36"
+        self.assertEqual(self.request("/api/hello", data=b"{}")[0], 403)
+        status, body = self.request("/api/hello", key="right-key", data=b"{}", agent=phone)
+        self.assertEqual((status, json.loads(body)["answer"]), (200, "hello, phone"))
+        status, body = self.request("/api/hello", key="right-key", data=b"{}", agent="Mozilla/5.0 (X11; Linux x86_64)")
+        self.assertEqual(json.loads(body)["answer"], "hello, laptop")
 
     def test_only_spoken_replies_can_be_fetched(self):
         self.assertEqual(self.request("/audio/reply.wav", key="right-key"), (200, b"RIFFfake"))

@@ -79,15 +79,23 @@ class Sofia:
         del self.replies[:-KEPT_REPLIES]
         return kept.name
 
-    def chat(self, text: str, sounds: str = NEUTRAL) -> dict:
+    def hello(self, device: str) -> dict:
+        """She speaks first when the page opens, unless the user was here a moment ago."""
         with self.lock:
+            self.session.situation.device = device
+            greeting = self.session.greet()
+            return {"answer": greeting, "audio": self._spoken(greeting)} if greeting else {}
+
+    def chat(self, text: str, sounds: str = NEUTRAL, device: str = "laptop") -> dict:
+        with self.lock:
+            self.session.situation.device = device
             result = self.session.command(text)
             if result is not None:
                 return {"command": result}
             answer, learned = self.session.say(text, sounds)
             return {"answer": answer, "learned": learned, "mood": self.session.mood, "audio": self._spoken(answer)}
 
-    def voice(self, upload: Path) -> dict:
+    def voice(self, upload: Path, device: str = "laptop") -> dict:
         from sofia import audio
         from sofia.voice import hear
 
@@ -98,7 +106,7 @@ class Sofia:
             wav.unlink(missing_ok=True)
         if not text:
             return {"heard": ""}
-        return {"heard": text, "sounds": sounds, **self.chat(text, sounds)}
+        return {"heard": text, "sounds": sounds, **self.chat(text, sounds, device)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -119,6 +127,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def _device(self) -> str:
+        """Which device the user is on: Sofia reads the phone as "they may be out"."""
+        agent = self.headers.get("User-Agent", "")
+        return "phone" if "Mobi" in agent or "Android" in agent else "laptop"
 
     def _json(self, payload: dict, status: int = HTTPStatus.OK) -> None:
         self._send(status, json.dumps(payload, ensure_ascii=False).encode(), "application/json; charset=utf-8")
@@ -161,12 +174,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/chat":
                 text = str(json.loads(body).get("text", "")).strip()
-                self._json(self.sofia.chat(text) if text else {"error": "empty message"})
+                self._json(self.sofia.chat(text, device=self._device()) if text else {"error": "empty message"})
+            elif path == "/api/hello":
+                self._json(self.sofia.hello(self._device()))
             elif path == "/api/voice" and self.sofia.speech:
                 upload = self.sofia.audio_dir / f"upload-{secrets.token_hex(8)}"
                 upload.write_bytes(body)
                 try:
-                    self._json(self.sofia.voice(upload))
+                    self._json(self.sofia.voice(upload, self._device()))
                 finally:
                     upload.unlink(missing_ok=True)
             else:

@@ -209,8 +209,13 @@ mic.addEventListener("click", async () => {
     setStatus("online");
   } catch (error) {
     setStatus("offline", "offline");
-    add("note", "Can't reach Sofia: " + error.message);
+    return add("note", "Can't reach Sofia: " + error.message);
   }
+  // She says hello first (nothing when you were here a moment ago).
+  busy(async () => {
+    const hello = await call("/api/hello", { method: "POST", body: "{}" });
+    if (hello.answer) await show(hello);
+  });
 })();
 </script>
 </body>

@@ -66,10 +66,15 @@ ensure_model() {
   curl -fsS "$OLLAMA_URL/api/version" >/dev/null 2>&1 \
     || die "Ollama is not answering at $OLLAMA_URL — start it with: sudo systemctl start ollama"
   ensure_base
-  # An older sofia was built with the vision projector; rebuild it on sofia-base.
-  if ! ollama list | grep -q '^sofia:' || ollama show sofia | grep -qw vision; then
+  # Rebuild when models/Sofia.Modelfile changed since the last build, or when an older sofia
+  # was built with the vision projector.
+  local stamp="$STATE_DIR/modelfile.sha256" sum
+  sum="$(sha256sum models/Sofia.Modelfile | cut -d' ' -f1)"
+  if ! ollama list | grep -q '^sofia:' || ollama show sofia | grep -qw vision || [ "$(cat "$stamp" 2>/dev/null)" != "$sum" ]; then
     log "Building the sofia model..."
     ollama create sofia -f models/Sofia.Modelfile
+    mkdir -p "$STATE_DIR"
+    echo "$sum" >"$stamp"
   fi
 }
 
@@ -138,8 +143,9 @@ app() {
     return
   fi
   # Her own browser profile keeps the window separate and remembers the microphone permission.
+  # Autoplay lets her say hello out loud before the first click.
   "$browser" --user-data-dir="$HOME/.local/share/sofia/browser" --no-first-run --no-default-browser-check \
-    --class=Sofia --app="$url" >/dev/null 2>&1 || true
+    --autoplay-policy=no-user-gesture-required --class=Sofia --app="$url" >/dev/null 2>&1 || true
   # The browser returns once her window is closed. If this click started her, stop her too so the
   # model leaves the GPU. SIGINT, not SIGTERM: on Ctrl-C she saves a last reflection first.
   if [ -n "$started" ]; then kill -INT "$started" 2>/dev/null || true; fi

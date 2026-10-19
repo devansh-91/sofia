@@ -5,12 +5,15 @@
 Needs the `sofia` Ollama model (see models/Sofia.Modelfile). Stdlib only.
 """
 import os
+from datetime import datetime, timedelta
+from typing import Callable
 
 from sofia import ollama
 from sofia.lang import ENGLISH, HINGLISH, REPLY_INSTRUCTION, detect
 from sofia.log import GOOD, ConversationLog
 from sofia.memory import FACTS, MOODS, NEUTRAL, NONE, Memory
 from sofia.polish import fit_sounds, polish
+from sofia.situation import LAST_TIME_TURNS, Situation
 
 MODEL = os.environ.get("SOFIA_MODEL", "sofia")
 
@@ -26,6 +29,11 @@ REFLECT_MIN_TURNS = 4
 CURIOUS_BELOW_FACTS = 12
 CURIOUS_EVERY_TURNS = 4
 CURIOSITY_NOTE = "[After replying, ask one short casual question to get to know the user better.]"
+
+# When the user opens the app, she speaks first; reopening it within a few minutes gets no new hello.
+GREETING = ("[The user has just opened the app and not said anything yet. Say hello first, in one short "
+            "line that fits the moment. If something from your last conversation is worth asking about, ask.]")
+GREET_AFTER = timedelta(minutes=10)
 
 HELP = (
     "Commands: /good (last reply was good), /say <better reply> (teach the right reply), "
@@ -55,6 +63,7 @@ def reply(
     memory: Memory | None = None,
     curious: bool = False,
     sounds: str = NEUTRAL,
+    situation: Situation | None = None,
 ) -> str:
     """Append the user's turn and Sofia's answer to `history`; return the answer.
 
@@ -63,14 +72,21 @@ def reply(
     history.append(_user_turn(text))
     del history[:-MAX_HISTORY_MESSAGES]
     heard = f"[The user sounds {sounds}.]" if sounds != NEUTRAL else ""
-    messages = history[:-1] + [_user_turn(text, heard)]
+    # Notes ride only on the newest message, so they are never repeated in history.
+    notes = situation.notes() if situation else []
+    messages = history[:-1] + [_user_turn(text, heard, *notes)]
     if memory:
         learned = []
         for example in memory.examples_for(text, ENGLISH):
             learned += [_user_turn(example["user"]), {"role": "assistant", "content": example["sofia"]}]
-        # Notes ride only on the newest message, so they are never repeated in history.
-        newest = _user_turn(text, heard, memory.preference_note(), CURIOSITY_NOTE if curious else "")
-        messages = memory.background() + learned + history[:-1] + [newest]
+        newest = _user_turn(text, heard, *notes, memory.preference_note(), CURIOSITY_NOTE if curious else "")
+        messages = memory.background(situation.background() if situation else []) + learned + history[:-1] + [newest]
+    answer = _answer(messages)
+    history.append({"role": "assistant", "content": answer})
+    return answer
+
+
+def _answer(messages: list[dict]) -> str:
     answer = ollama.chat(MODEL, messages)
     # The model slips into Hinglish now and then, mostly when the user wrote in it.
     # Show it the slip and ask again — a plain retry repeats it.
@@ -84,17 +100,16 @@ def reply(
         answer = ollama.chat(MODEL, messages + correction)
     if detect(answer, ENGLISH) == HINGLISH:
         answer = _in_english(answer)
-    answer = polish(answer)
-    history.append({"role": "assistant", "content": answer})
-    return answer
+    return polish(answer)
 
 
 class Session:
     """One terminal conversation: replies, learns from each message, logs everything."""
 
-    def __init__(self, memory: Memory, log: ConversationLog):
+    def __init__(self, memory: Memory, log: ConversationLog, now: Callable[[], datetime] = datetime.now):
         self.memory = memory
         self.log = log
+        self.situation = Situation(log.last_turns(LAST_TIME_TURNS), now)
         self.history: list[dict] = []
         self.language = HINGLISH  # of the user's messages; her replies are always English
         self.turns = 0
@@ -119,7 +134,7 @@ class Session:
             len(self.memory.items[FACTS]) < CURIOUS_BELOW_FACTS and self.turns % CURIOUS_EVERY_TURNS == 2
         )
         previous, previous_id = self.last, self.last_id
-        answer = reply(self.history, text, self.memory, curious, sounds)
+        answer = reply(self.history, text, self.memory, curious, sounds, self.situation)
         # learn() keeps a praised reply as an example; the log records praise and criticism.
         learned, reaction = self.memory.learn(text, self.language, previous, heard_mood=sounds)
         # learn() has just read the user's mood: drop a sound that doesn't fit it.
@@ -128,10 +143,25 @@ class Session:
             self.log.feedback(previous_id, reaction)
         self.last = {"user": text, "sofia": answer, "language": ENGLISH}
         self.last_id = self.log.turn(text, answer, self.language)
+        self.situation.seen()
         self.unreflected.append(self.last)
         if len(self.unreflected) >= REFLECT_EVERY_TURNS:
             learned += self.reflect()
         return answer, learned
+
+    def greet(self) -> str | None:
+        """Her opening line when the user opens the app, fitted to the moment; None when they
+        were here a moment ago."""
+        seen = self.situation.last_seen
+        if seen and self.situation.now() - seen < GREET_AFTER:
+            return None
+        notes = self.situation.notes()
+        messages = self.memory.background(self.situation.background()) + self.history + [_user_turn(GREETING, *notes)]
+        answer = fit_sounds(_answer(messages), NEUTRAL)
+        self.history += [{"role": "user", "content": "[The user opened the app.]"},
+                         {"role": "assistant", "content": answer}]
+        self.situation.seen()
+        return answer
 
     def reflect(self) -> list[str]:
         """Learn from how the user behaved over the exchanges since the last reflection."""
@@ -181,6 +211,8 @@ def main() -> None:
     ollama.preload(MODEL)
     session = Session(Memory(), ConversationLog())
     print(f"Sofia — write in English or Hinglish, she answers in English.\n{HELP}\n")
+    if greeting := session.greet():
+        print(f"sofia> {greeting}\n")
     while True:
         try:
             text = input("you> ").strip()

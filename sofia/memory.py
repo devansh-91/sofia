@@ -313,7 +313,7 @@ def observe(exchanges: list[dict], known: list[str]) -> list[str]:
 _DAY_PARTS = ((5, "in the morning"), (12, "in the afternoon"), (17, "in the evening"), (22, "late at night"))
 
 
-def _day_part(moment: datetime) -> str:
+def day_part(moment: datetime) -> str:
     part = "late at night"  # 22:00-04:59
     for start, name in _DAY_PARTS:
         if moment.hour >= start:
@@ -389,7 +389,7 @@ class Memory:
         if len(recent) < HABIT_MIN_MESSAGES or len(days) < HABIT_MIN_DAYS:
             return []
         found = []
-        part, count = Counter(_day_part(datetime.fromisoformat(m["time"])) for m in recent).most_common(1)[0]
+        part, count = Counter(day_part(datetime.fromisoformat(m["time"])) for m in recent).most_common(1)[0]
         if count / len(recent) >= 0.6:
             found.append(f"User usually chats {part}.")
         language, count = Counter(m["language"] for m in recent).most_common(1)[0]
@@ -456,10 +456,13 @@ class Memory:
         self.items = {kind: [] for kind in self.items}
         self.save()
 
-    def background(self) -> list[dict]:
-        """What she knows about the user, as an exchange placed before the conversation. Kept away
-        from the newest message on purpose: right next to it, she drags every fact into every reply."""
+    def background(self, situation: list[str] = ()) -> list[dict]:
+        """What she knows about the user (and `situation`, the moment around them: see
+        sofia/situation.py), as an exchange placed before the conversation. Kept away from the
+        newest message on purpose: right next to it, she drags every fact into every reply."""
         parts = []
+        if situation:
+            parts.append("[Where things stand right now. Bring it up only when it matters.]\n" + " ".join(situation))
         if known := self.items[FACTS] + self.items[TAUGHT]:
             parts.append("[Things you already know. Do not list them; use one only when it really fits.]\n"
                          + " ".join(known))

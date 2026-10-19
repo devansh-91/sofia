@@ -35,6 +35,11 @@ def main() -> None:
     print("Loading speech models...", flush=True)
     stt._load(), emotion._load(), tts._load()
     print(f"Sofia — press Enter, speak, press Enter again. Or type a message.\n{HELP}\n")
+    if greeting := session.greet():
+        wav, _ = tts.speak(greeting)
+        print(f"sofia> {greeting}\n")
+        audio.play(wav)
+        wav.unlink(missing_ok=True)
     while True:
         try:
             text = input("[Enter to talk] you> ").strip()

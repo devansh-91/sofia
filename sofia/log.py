@@ -42,6 +42,19 @@ class ConversationLog:
                       "language": language, "user": user, "sofia": sofia})
         return turn_id
 
+    def last_turns(self, count: int) -> list[dict]:
+        """The latest `count` exchanges in the log, oldest first."""
+        if not self.path.exists():
+            return []
+        turns = []
+        for line in reversed(self.path.read_text(encoding="utf-8").splitlines()):
+            record = json.loads(line)
+            if record["type"] == "turn":
+                turns.append(record)
+                if len(turns) == count:
+                    break
+        return turns[::-1]
+
     def feedback(self, turn_id: str, rating: str) -> None:
         self._append({"type": "feedback", "turn": turn_id, "rating": rating})
 

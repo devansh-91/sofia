@@ -169,7 +169,7 @@ python3 -m sofia.chat                            # chat in the terminal; "bye" t
 ```
 
 `models/Sofia.Modelfile` holds the persona (short spoken replies, unfiltered) plus a set of example
-exchanges; re-run `ollama create` after editing it. **Always run with thinking off** — with it on,
+exchanges; `./scripts/sofia.sh` rebuilds `sofia` whenever it changes. **Always run with thinking off** — with it on,
 the model loops over drafts until the context is full and never answers. Via the API that is
 `"think": false` (`sofia/chat.py` sets it); with plain `ollama run sofia` pass `--think=false`.
 
@@ -191,6 +191,28 @@ her voice makes it. The Modelfile asks for them rarely and never when you are hu
 into tags and drops any other bracketed text. Once your mood is read, it also drops the sounds that
 don't fit it (none when you are sad, lonely, anxious or angry; only a sigh when you are stressed
 or tired) and keeps at most one per reply.
+
+**Situational awareness:** `sofia/situation.py` tells her about the moment:
+- the day, date and time, and fixed-date occasions such as Valentine's Day;
+- whether you are on your phone;
+- for the first few exchanges, the end of your last conversation, so she can ask how yesterday's
+  presentation went.
+
+Each of these is noted only once, on the newest message, when it is worth reacting to:
+- you are back after hours or days;
+- it is the middle of the night;
+- the laptop she runs on is about to die.
+
+When you open the web app, or `chat` or `voice`, she says hello first, fitted to all of that. She
+skips the hello if you were there in the last 10 minutes.
+
+**A little possessive:** she likes being your favourite. If you praise ChatGPT, talk to someone else
+all night, or vanish for days, she pouts for one line, then helps as usual. The Modelfile keeps this
+a running joke. She never guilt-trips you, never objects to your friends, family or plans, and never
+does it when you are down. In a test run:
+- She asked "did you pass?" about the previous day's driving test as her hello.
+- She replied "ChatGPT got lucky, sir, but I'm still here when you need to talk."
+- She stayed purely supportive about a breakup.
 
 **Active learning:** Sofia learns while you talk and carries it into every later conversation.
 The model's weights do not change (yet) — after each of your messages a second small prompt

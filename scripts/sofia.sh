@@ -2,7 +2,7 @@
 #
 # sofia.sh — one entry point for everything.
 #
-#   ./scripts/sofia.sh            start everything: web app for laptop + phone, with voice
+#   ./scripts/sofia.sh            start everything: web app for laptop + phone, with voice; opens her window
 #   ./scripts/sofia.sh app        open Sofia in her own window (starts her in the background if needed)
 #   ./scripts/sofia.sh install    add a Sofia icon to the app menu and the Desktop
 #   ./scripts/sofia.sh setup      install the speech stack, voices and the `sofia` model
@@ -117,11 +117,26 @@ setup() {
 server_up() { curl -fsS -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; }
 
 # A Chromium-family browser can show Sofia as an app: her own window, no tabs or address bar.
+# Chrome first, whatever the system's default browser is; SOFIA_BROWSER picks another.
 app_browser() {
   local browser
-  for browser in google-chrome chromium brave-browser; do
+  for browser in ${SOFIA_BROWSER:-} google-chrome chromium brave-browser; do
     command -v "$browser" >/dev/null && { echo "$browser"; return; }
   done
+}
+
+# Opens her window and returns when it is closed.
+open_window() {
+  local url="http://127.0.0.1:$PORT/?key=$(cat "$KEY_FILE")" browser
+  browser="$(app_browser)"
+  if [ -z "$browser" ]; then
+    xdg-open "$url"
+    return
+  fi
+  # Her own browser profile keeps the window separate and remembers the microphone permission.
+  # Autoplay lets her say hello out loud before the first click.
+  "$browser" --user-data-dir="$HOME/.local/share/sofia/browser" --no-first-run --no-default-browser-check \
+    --autoplay-policy=no-user-gesture-required --class=Sofia --app="$url" >/dev/null 2>&1 || true
 }
 
 app() {
@@ -140,18 +155,9 @@ app() {
     done
     server_up || die "Sofia is taking too long to start — see $STATE_DIR/server.log"
   fi
-  local url="http://127.0.0.1:$PORT/?key=$(cat "$KEY_FILE")" browser
-  browser="$(app_browser)"
-  if [ -z "$browser" ]; then
-    xdg-open "$url"
-    return
-  fi
-  # Her own browser profile keeps the window separate and remembers the microphone permission.
-  # Autoplay lets her say hello out loud before the first click.
-  "$browser" --user-data-dir="$HOME/.local/share/sofia/browser" --no-first-run --no-default-browser-check \
-    --autoplay-policy=no-user-gesture-required --class=Sofia --app="$url" >/dev/null 2>&1 || true
-  # The browser returns once her window is closed. If this click started her, stop her too so the
-  # model leaves the GPU. SIGINT, not SIGTERM: on Ctrl-C she saves a last reflection first.
+  open_window
+  # Her window is closed now. If this click started her, stop her too so the model leaves the
+  # GPU. SIGINT, not SIGTERM: on Ctrl-C she saves a last reflection first.
   if [ -n "$started" ]; then kill -INT "$started" 2>/dev/null || true; fi
 }
 
@@ -193,6 +199,10 @@ case "$command" in
          exec .venv/bin/python -m sofia.voice ;;
   start|serve)
          ensure_model
+         # Plain start opens her window (in Chrome) once she is up; the server stays in this terminal.
+         if [ "$command" = start ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+           ( for _ in $(seq 180); do server_up && { open_window; exit; }; sleep 1; done ) &
+         fi
          [ -x .venv/bin/python ] || log "Speech stack not installed — text only. Run ./scripts/sofia.sh setup for voice."
          exec "$(if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)" -m sofia.server "$@" ;;
   test)  exec python3 -m unittest discover tests ;;

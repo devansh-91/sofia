@@ -305,9 +305,11 @@ understand Hinglish). Ruled out on size without testing: Dolphin 3 8B (4.9 GB do
 
 ```bash
 ./scripts/sofia.sh setup     # .venv + speech stack, Turbo + Kokoro voices, STT + emotion models, sofia model
-./scripts/sofia.sh           # start everything: web app with text + voice
+./scripts/sofia.sh           # start everything: web app with text + voice, and open her window
 ./scripts/sofia.sh install   # add a Sofia icon to the app menu and Desktop (click it to open her)
 ./scripts/sofia.sh app       # what the icon runs: her own window, server started and stopped with it
+# Her window opens in Google Chrome (then Chromium, then Brave), whatever the default browser is;
+# SOFIA_BROWSER=chromium picks another.
 ./scripts/sofia.sh voice     # or talk in the terminal: Enter, speak, Enter
 ./scripts/sofia.sh chat      # text only, in the terminal
 ./scripts/sofia.sh test      # unit tests

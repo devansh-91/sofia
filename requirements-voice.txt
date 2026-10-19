@@ -1,8 +1,11 @@
 # Speech stack (the text chat itself needs only the Python standard library).
 # Installed into .venv by: ./scripts/sofia.sh setup
-# torch is the CPU build on purpose: all 6 GB of VRAM belongs to the LLM.
+# torch is the CPU build on purpose: the VRAM belongs to the LLM and her voice (Chatterbox-Turbo,
+# in its own venv). Speech recognition takes ~0.4 GB of it, through the CUDA libraries below.
 --extra-index-url https://download.pytorch.org/whl/cpu
 faster-whisper>=1.2,<2   # speech to text
+nvidia-cublas-cu12>=12.4,<13   # ... on the GPU (sofia/stt.py falls back to the CPU without them)
+nvidia-cudnn-cu12>=9.1,<10
 kokoro-onnx>=0.6,<0.7     # text to speech (model files: scripts/sofia.sh setup)
 transformers>=5,<6       # speech emotion recognition (wav2vec2)
 torch>=2.14,<3

@@ -26,6 +26,7 @@ from sofia.log import ConversationLog
 from sofia.memory import NEUTRAL, Memory
 
 WEB_PAGE = Path(__file__).parent / "web" / "index.html"
+ICON = Path(__file__).parent / "web" / "icon.svg"
 KEY_PATH = Path(os.environ.get("SOFIA_KEY_FILE", "~/.local/share/sofia/access-key")).expanduser()
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 KEPT_REPLIES = 20  # spoken replies kept on disk for the browser to fetch
@@ -132,6 +133,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             # The page itself holds nothing private; the key it carries in the URL unlocks the API.
             self._send(HTTPStatus.OK, WEB_PAGE.read_bytes(), "text/html; charset=utf-8")
+        elif path == "/icon.svg":
+            self._send(HTTPStatus.OK, ICON.read_bytes(), "image/svg+xml")
         elif not self._authorised():
             self._json({"error": "wrong or missing key"}, HTTPStatus.FORBIDDEN)
         elif path == "/api/status":

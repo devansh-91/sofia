@@ -3,6 +3,8 @@
 # sofia.sh — one entry point for everything.
 #
 #   ./scripts/sofia.sh            start everything: web app for laptop + phone, with voice
+#   ./scripts/sofia.sh app        open Sofia in her own window (starts her in the background if needed)
+#   ./scripts/sofia.sh install    add a Sofia icon to the app menu and the Desktop
 #   ./scripts/sofia.sh setup      install the speech stack, voices and the `sofia` model
 #   ./scripts/sofia.sh chat       text chat in this terminal
 #   ./scripts/sofia.sh voice      talk out loud in this terminal (push-to-talk)
@@ -30,9 +32,18 @@ TURBO_VENV="${SOFIA_TURBO_VENV:-$HOME/.local/share/sofia/chatterbox}"
 CUDA_INDEX=https://download.pytorch.org/whl/cu126
 CHATTERBOX_REV=5de7a54aa4e5e2baadb0182dde554908b48b85c2
 OLLAMA_URL="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+PORT="${SOFIA_PORT:-8765}"
+KEY_FILE="${SOFIA_KEY_FILE:-$HOME/.local/share/sofia/access-key}"
+STATE_DIR="$HOME/.local/state/sofia"
+ICON="$PWD/sofia/web/icon.svg"
 
 log()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
-die()  { printf '\033[1;31mxx \033[0m %s\n' "$*" >&2; exit 1; }
+# Started from the app icon there is no terminal to read, so problems also become notifications.
+die()  {
+  printf '\033[1;31mxx \033[0m %s\n' "$*" >&2
+  [ -t 2 ] || notify-send -i "$ICON" "Sofia" "$*" 2>/dev/null || true
+  exit 1
+}
 
 # The speech stack lives in .venv; without it, fall back to system Python (text only).
 python() { if [ -x .venv/bin/python ]; then .venv/bin/python "$@"; else python3 "$@"; fi; }
@@ -94,11 +105,79 @@ setup() {
   log "Setup done. Start with: ./scripts/sofia.sh"
 }
 
+server_up() { curl -fsS -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; }
+
+# A Chromium-family browser can show Sofia as an app: her own window, no tabs or address bar.
+app_browser() {
+  local browser
+  for browser in google-chrome chromium brave-browser; do
+    command -v "$browser" >/dev/null && { echo "$browser"; return; }
+  done
+}
+
+app() {
+  local started=""
+  if ! server_up; then
+    ensure_model
+    mkdir -p "$STATE_DIR"
+    notify-send -i "$ICON" "Sofia" "Waking up..." 2>/dev/null || true
+    setsid "$PWD/scripts/sofia.sh" serve --port "$PORT" >"$STATE_DIR/server.log" 2>&1 &
+    started=$!
+    # The speech models take a while to load.
+    for _ in $(seq 180); do
+      server_up && break
+      kill -0 "$started" 2>/dev/null || die "Sofia failed to start — see $STATE_DIR/server.log"
+      sleep 1
+    done
+    server_up || die "Sofia is taking too long to start — see $STATE_DIR/server.log"
+  fi
+  local url="http://127.0.0.1:$PORT/?key=$(cat "$KEY_FILE")" browser
+  browser="$(app_browser)"
+  if [ -z "$browser" ]; then
+    xdg-open "$url"
+    return
+  fi
+  # Her own browser profile keeps the window separate and remembers the microphone permission.
+  "$browser" --user-data-dir="$HOME/.local/share/sofia/browser" --no-first-run --no-default-browser-check \
+    --class=Sofia --app="$url" >/dev/null 2>&1 || true
+  # The browser returns once her window is closed. If this click started her, stop her too so the
+  # model leaves the GPU. SIGINT, not SIGTERM: on Ctrl-C she saves a last reflection first.
+  if [ -n "$started" ]; then kill -INT "$started" 2>/dev/null || true; fi
+}
+
+install_launcher() {
+  local entry="$HOME/.local/share/applications/sofia.desktop" desktop
+  mkdir -p "$(dirname "$entry")"
+  cat >"$entry" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Sofia
+GenericName=AI companion
+Comment=Talk to Sofia, your English-speaking companion
+Exec="$PWD/scripts/sofia.sh" app
+Icon=$ICON
+Terminal=false
+Categories=Utility;Chat;
+StartupWMClass=Sofia
+StartupNotify=true
+EOF
+  chmod +x "$entry"
+  log "Added Sofia to the app menu."
+  desktop="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
+  if [ -d "$desktop" ]; then
+    cp "$entry" "$desktop/sofia.desktop"
+    gio set "$desktop/sofia.desktop" metadata::trusted true 2>/dev/null || true
+    log "Added a Sofia icon to $desktop — double-click it to open her."
+  fi
+}
+
 command="${1:-start}"
 [ $# -gt 0 ] && shift
 
 case "$command" in
   setup) setup ;;
+  app)   app ;;
+  install) install_launcher ;;
   chat)  ensure_model; exec python3 -m sofia.chat ;;
   voice) ensure_model; [ -x .venv/bin/python ] || die "Voice needs the speech stack: ./scripts/sofia.sh setup"
          exec .venv/bin/python -m sofia.voice ;;
@@ -107,5 +186,5 @@ case "$command" in
          [ -x .venv/bin/python ] || log "Speech stack not installed — text only. Run ./scripts/sofia.sh setup for voice."
          exec "$(if [ -x .venv/bin/python ]; then echo .venv/bin/python; else echo python3; fi)" -m sofia.server "$@" ;;
   test)  exec python3 -m unittest discover tests ;;
-  *)     sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *)     sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

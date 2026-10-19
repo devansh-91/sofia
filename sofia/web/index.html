@@ -3,53 +3,124 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16131c">
 <title>Sofia</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
-  :root { color-scheme: dark; --bg: #121016; --panel: #1d1a24; --mine: #6d4aff; --hers: #2a2633; --text: #f2eff7; --dim: #9a93a8; }
+  :root {
+    color-scheme: dark;
+    --bg: #100e14; --panel: #16131c; --line: #262130; --field: #1f1b27;
+    --mine: linear-gradient(135deg, #7c4dff, #b04ad9); --hers: #221e2b;
+    --accent: #8b5cff; --text: #f2eff7; --dim: #9a93a8; --ok: #3ecf8e; --bad: #e5484d;
+  }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
-  body { background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; }
-  header { padding: 12px 16px; background: var(--panel); display: flex; align-items: center; gap: 10px; }
-  header h1 { font-size: 18px; margin: 0; flex: 1; }
-  header label { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
-  #log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-  .msg { max-width: 82%; padding: 9px 13px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .me { align-self: flex-end; background: var(--mine); border-bottom-right-radius: 4px; }
-  .her { align-self: flex-start; background: var(--hers); border-bottom-left-radius: 4px; }
-  .note { align-self: center; color: var(--dim); font-size: 13px; text-align: center; white-space: pre-wrap; }
-  form { display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--panel); }
-  input[type=text] { flex: 1; min-width: 0; padding: 11px 14px; border-radius: 22px; border: 0; background: var(--bg); color: var(--text); font-size: 16px; }
-  button { border: 0; border-radius: 22px; padding: 0 16px; background: var(--mine); color: #fff; font-size: 16px; min-height: 44px; }
-  button:disabled { opacity: .5; }
-  #mic.recording { background: #e5484d; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; justify-content: center; }
+  .app { width: 100%; max-width: 760px; height: 100%; display: flex; flex-direction: column; background: var(--panel); border-inline: 1px solid var(--line); }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; padding-top: calc(12px + env(safe-area-inset-top)); border-bottom: 1px solid var(--line); }
+  header img { width: 42px; height: 42px; border-radius: 12px; }
+  .who { flex: 1; min-width: 0; }
+  .who h1 { font-size: 17px; margin: 0; }
+  #status { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  #status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  #status.online::before { background: var(--ok); }
+  #status.offline::before { background: var(--bad); }
+  .toggle { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .toggle input { appearance: none; width: 34px; height: 20px; border-radius: 10px; background: var(--line); position: relative; margin: 0; cursor: pointer; transition: background .2s; }
+  .toggle input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .toggle input:checked { background: var(--accent); }
+  .toggle input:checked::after { transform: translateX(14px); }
+
+  #log { flex: 1; overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 6px; background: var(--bg); }
+  .welcome { margin: auto; text-align: center; color: var(--dim); max-width: 340px; }
+  .welcome img { width: 84px; height: 84px; border-radius: 24px; margin-bottom: 12px; }
+  .welcome h2 { color: var(--text); margin: 0 0 6px; font-size: 22px; }
+  .welcome p { margin: 0 0 4px; }
+  .msg { max-width: 78%; padding: 9px 14px; border-radius: 18px; white-space: pre-wrap; overflow-wrap: anywhere; animation: pop .18s ease-out; }
+  .me { align-self: flex-end; background: var(--mine); border-bottom-right-radius: 5px; }
+  .her { align-self: flex-start; background: var(--hers); border-bottom-left-radius: 5px; }
+  .me + .her, .her + .me { margin-top: 8px; }
+  .note { align-self: center; color: var(--dim); font-size: 13px; text-align: center; white-space: pre-wrap; padding: 2px 10px; }
+  .learned { align-self: flex-start; font-size: 12.5px; color: #c9b8ff; background: #2a2140; border-radius: 10px; padding: 3px 10px; }
+  .typing { display: flex; gap: 4px; padding: 13px 16px; }
+  .typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px); } }
+
+  form { display: flex; align-items: center; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+  input[type=text] { flex: 1; min-width: 0; padding: 12px 16px; border-radius: 24px; border: 1px solid var(--line); background: var(--field); color: var(--text); font-size: 16px; outline: none; }
+  input[type=text]:focus { border-color: var(--accent); }
+  .round { flex: none; width: 46px; height: 46px; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer; color: #fff; background: var(--accent); transition: transform .1s, opacity .2s; }
+  .round:active { transform: scale(.94); }
+  .round:disabled { opacity: .45; cursor: default; }
+  .round svg { width: 22px; height: 22px; }
+  #mic { background: var(--field); border: 1px solid var(--line); color: var(--text); }
+  #mic.recording { background: var(--bad); border-color: var(--bad); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 #e5484d88; } 100% { box-shadow: 0 0 0 12px #e5484d00; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Sofia</h1>
-  <label id="speakLabel" hidden><input type="checkbox" id="speak" checked> voice</label>
-</header>
-<div id="log"></div>
-<form id="form">
-  <button type="button" id="mic" hidden aria-label="Hold to talk">🎙</button>
-  <input type="text" id="text" placeholder="English ya Hinglish…" autocomplete="off">
-  <button type="submit" id="send">Send</button>
-</form>
+<div class="app">
+  <header>
+    <img src="/icon.svg" alt="">
+    <div class="who">
+      <h1>Sofia</h1>
+      <div id="status">connecting…</div>
+    </div>
+    <label class="toggle" id="speakLabel" hidden>voice <input type="checkbox" id="speak" checked></label>
+  </header>
+  <div id="log">
+    <div class="welcome" id="welcome">
+      <img src="/icon.svg" alt="">
+      <h2>Hi, I'm Sofia.</h2>
+      <p>Write or talk in English or Hinglish — she answers in English.</p>
+      <p id="micHint" hidden>Tap the mic to talk, tap again to send.</p>
+      <p style="font-size:13px;margin-top:12px">Commands: /good · /say &lt;better reply&gt; · /memory · /forget &lt;number&gt;</p>
+    </div>
+  </div>
+  <form id="form">
+    <button type="button" class="round" id="mic" hidden aria-label="Talk" title="Talk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <input type="text" id="text" placeholder="Message Sofia…" autocomplete="off" autofocus>
+    <button type="submit" class="round" id="send" aria-label="Send" title="Send">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    </button>
+  </form>
+</div>
 <script>
 const log = document.getElementById("log"), form = document.getElementById("form"), input = document.getElementById("text");
 const mic = document.getElementById("mic"), send = document.getElementById("send"), speak = document.getElementById("speak");
+const status = document.getElementById("status");
 
 // The key arrives in the link once, then lives in this browser only.
 const fromLink = new URLSearchParams(location.search).get("key");
 if (fromLink) { localStorage.setItem("sofiaKey", fromLink); history.replaceState(null, "", "/"); }
 const key = localStorage.getItem("sofiaKey") || "";
 
+function setStatus(text, kind = "online") {
+  status.textContent = text;
+  status.className = kind;
+}
+
 function add(kind, text) {
+  document.getElementById("welcome")?.remove();
   const bubble = document.createElement("div");
-  bubble.className = kind === "note" ? "note" : "msg " + kind;
+  bubble.className = ["note", "learned"].includes(kind) ? kind : "msg " + kind;
   bubble.textContent = text;
   log.appendChild(bubble);
   log.scrollTop = log.scrollHeight;
+  return bubble;
+}
+
+function typing() {
+  const bubble = add("her", "");
+  bubble.classList.add("typing");
+  bubble.innerHTML = "<span></span><span></span><span></span>";
   return bubble;
 }
 
@@ -64,19 +135,27 @@ async function show(data) {
   if (data.command !== undefined) return add("note", data.command);
   if (data.error) return add("note", data.error);
   add("her", data.answer);
-  for (const item of data.learned || []) add("note", "yaad rakha: " + item);
+  for (const item of data.learned || []) add("learned", "yaad rakha: " + item);
   if (data.audio && speak.checked) {
     const audio = await fetch("/audio/" + data.audio, { headers: { "X-Sofia-Key": key } });
     if (audio.ok) new Audio(URL.createObjectURL(await audio.blob())).play().catch(() => {});
   }
 }
 
-async function busy(work) {
+async function busy(work, doing = "typing…") {
   send.disabled = mic.disabled = true;
-  const waiting = add("note", "…");
-  try { await work(); } catch (error) { add("note", "Problem: " + error.message); }
-  waiting.remove();
+  setStatus(doing);
+  const dots = typing();
+  try {
+    await work(dots);
+    setStatus("online");
+  } catch (error) {
+    add("note", "Problem: " + error.message);
+    setStatus("online");
+  }
+  dots.remove();
   send.disabled = mic.disabled = false;
+  input.focus();
 }
 
 form.addEventListener("submit", (event) => {
@@ -103,26 +182,35 @@ mic.addEventListener("click", async () => {
     mic.classList.remove("recording");
     const blob = new Blob(chunks, { type: recorder.mimeType });
     recorder = null;
-    busy(async () => {
+    busy(async (dots) => {
       const data = await call("/api/voice", { method: "POST", body: blob });
       if (!data.heard) return add("note", "Didn't catch that.");
-      add("me", data.heard + (data.sounds && data.sounds !== "neutral" ? "  (" + data.sounds + ")" : ""));
+      // Her typing dots go after what she heard.
+      log.insertBefore(add("me", data.heard + (data.sounds && data.sounds !== "neutral" ? "  (" + data.sounds + ")" : "")), dots);
       await show(data);
-    });
+    }, "listening…");
   };
   recorder.start();
   mic.classList.add("recording");
+  setStatus("recording — tap the mic again to send");
 });
 
 (async () => {
-  if (!key) return add("note", "Open the link printed by ./scripts/sofia.sh serve — it carries your access key.");
+  if (!key) {
+    setStatus("no access key", "offline");
+    return add("note", "Open the link printed by ./scripts/sofia.sh serve — it carries your access key.");
+  }
   try {
     const status = await call("/api/status");
     document.getElementById("speakLabel").hidden = !status.speech;
     // Browsers only hand out the microphone on https or localhost.
     mic.hidden = !(status.speech && navigator.mediaDevices && window.MediaRecorder);
-    add("note", "Commands: /good, /say <better reply>, /memory, /forget <number>");
-  } catch (error) { add("note", "Can't reach Sofia: " + error.message); }
+    document.getElementById("micHint").hidden = mic.hidden;
+    setStatus("online");
+  } catch (error) {
+    setStatus("offline", "offline");
+    add("note", "Can't reach Sofia: " + error.message);
+  }
 })();
 </script>
 </body>

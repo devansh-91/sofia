@@ -27,10 +27,15 @@ def _post(path: str, body: dict, timeout: float = 300) -> dict:
         return json.load(response)
 
 
-def chat(model: str, messages: list[dict], **extra) -> str:
-    """One non-streaming chat turn. Thinking is always off: this model loops with it on."""
+def chat_message(model: str, messages: list[dict], **extra) -> dict:
+    """One non-streaming chat turn, as the message Ollama returns: with `tools`, it may hold
+    tool_calls instead of text. Thinking is always off: this model loops with it on."""
     body = {"model": model, "messages": messages, "stream": False, "think": False, "keep_alive": KEEP_ALIVE, **extra}
-    return _post("/api/chat", body)["message"]["content"].strip()
+    return _post("/api/chat", body)["message"]
+
+
+def chat(model: str, messages: list[dict], **extra) -> str:
+    return chat_message(model, messages, **extra)["content"].strip()
 
 
 def preload(model: str) -> None:

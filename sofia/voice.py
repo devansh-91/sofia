@@ -69,6 +69,8 @@ def main() -> None:
             continue
         answer, learned, wav, style = respond(session, text, sounds)
         print(f"sofia ({style})> {answer}")
+        for item in session.looked:
+            print(f"  (looked up: {item})")
         for item in learned:
             print(f"  (remembered: {item})")
         print()

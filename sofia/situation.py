@@ -46,7 +46,7 @@ def time_of_day(moment: datetime) -> str:
 
 def clock(moment: datetime) -> str:
     occasion = OCCASIONS.get((moment.month, moment.day))
-    said = f"It is {moment:%A}, {moment.day} {moment:%B}, {time_of_day(moment)}, {day_part(moment)}"
+    said = f"It is {moment:%A}, {moment.day} {moment:%B} {moment.year}, {time_of_day(moment)}, {day_part(moment)}"
     return said + (f", and it's {occasion}." if occasion else ".")
 
 

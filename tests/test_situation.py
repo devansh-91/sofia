@@ -29,7 +29,7 @@ class SituationTest(unittest.TestCase):
         situation.battery = self._real_battery
 
     def test_clock_and_gaps_read_naturally(self):
-        self.assertEqual(clock(datetime(2026, 10, 19, 16, 5)), "It is Monday, 19 October, 4:05 PM, in the afternoon.")
+        self.assertEqual(clock(datetime(2026, 10, 19, 16, 5)), "It is Monday, 19 October 2026, 4:05 PM, in the afternoon.")
         self.assertIn("and it's Valentine's Day.", clock(datetime(2027, 2, 14, 0, 30)))
         self.assertEqual(ago(timedelta(days=4, hours=2)), "4 days")
         self.assertEqual(ago(timedelta(days=1, hours=20)), "2 days")

@@ -71,14 +71,18 @@ Everything competes for 6 GB, so the split is deliberate:
 
 | Component | Runs on | Footprint |
 |-----------|---------|-----------|
-| Qwen3.5-4B — **Q4_K_M** quant | GPU | ~2.9 GB measured, without the vision projector it ships with (~0.9 GB) |
+| Qwen3.5-4B — **Q4_K_M** quant, 8192-token context | GPU | ~3.0 GB measured, without the vision projector it ships with (~0.9 GB) |
 | STT (faster-whisper) | **CPU** (frees VRAM) | 0 GB VRAM |
 | SER (wav2vec2) | **CPU** | 0 GB VRAM |
 | TTS (Chatterbox-Turbo, half precision, split GPU / CPU) | GPU | ~1.4 GB (the whole model in full precision: 3.3 GB) |
 | TTS fallback (Kokoro-82M, ONNX) | **CPU** | 0 GB VRAM |
 | KV cache / context | GPU | included above |
 
-With the desktop's ~1.3 GB, everything together uses ~5.6 of the 6 GB.
+With the desktop's ~1.3 GB, everything together uses ~5.7 of the 6 GB.
+
+System RAM matters too: loading Turbo briefly takes ~3 GB of RAM. When the laptop is short of RAM
+(many browser tabs, swap full), the kernel kills Turbo's worker, and Sofia says so and speaks with
+Kokoro until she is restarted.
 Q4 is the right quant — Q5+ won't leave room for TTS. Measured speed is ~43–48 tok/s.
 
 ### ⚠️ Prerequisite: NVIDIA driver + CUDA
@@ -103,6 +107,9 @@ back to CPU (slow). **Step 0 below installs it** — on this laptop it is done: 
 
 ## Still to decide
 
+- **Doing, not only looking:** she can look through files and the web, but not change files or run
+  programs. That needs its own design: a yes from you before anything hard to undo, and limits on
+  what she may run.
 - **Emotional TTS:** Turbo has no emotion or pace setting. Her tone for your mood comes from five
   clones of her voice read at different paces (see "Her voice" below), plus her words and sounds;
   the clones change pace and liveliness, not a sad or happy timbre. `bench/tts` compares voices by ear.
@@ -214,6 +221,36 @@ does it when you are down. In a test run:
 - She replied "ChatGPT got lucky, sir, but I'm still here when you need to talk."
 - She stayed purely supportive about a breakup.
 
+**Looking things up:** she can look, never touch. `sofia/tools.py` gives her these tools, through
+Ollama's tool calling:
+- list a folder (with counts per file type, and the biggest and newest file), find files by name, and
+  read text files;
+- search the web, read a page, get the news (Google News headlines, also for scores and results),
+  and get the weather (Open-Meteo).
+
+Two limits hold whatever the model asks for:
+- Only the home folder is reachable, never hidden files or folders (keys, configs, browser data,
+  her memory), and never through a symlink pointing out of bounds.
+- No tool changes, moves or deletes anything, opens anything or runs a program. Asked to, she says
+  she can't.
+
+Three things keep the 4B model from making answers up:
+- A question about the news, prices, the weather or your files gets a note telling her to look first.
+  If she answers without looking anyway, she is sent back once.
+- A web search also reads the top result's page, because snippets seldom hold the number asked for.
+- If her answer has a number that is in nothing she looked up, she gets one more try and is told
+  which numbers those are.
+
+In tests she then said "I couldn't find the exact rate just now" instead of inventing a petrol price.
+A lookup adds ~2–6 s to a reply.
+
+**Web search** goes to a private SearXNG on this laptop when one is running. Start it with
+`./scripts/searxng.sh`; it needs Docker and pulls a few hundred MB once. Without SearXNG she uses
+Brave Search's web page, which blocks scripts after a few searches in a row. While Brave is blocking,
+she falls back to news headlines and Wikipedia, and says when they don't hold the answer. DuckDuckGo,
+Mojeek and Ecosia show scripts a captcha, and Bing returns unrelated results to them, so they aren't
+used.
+
 **Active learning:** Sofia learns while you talk and carries it into every later conversation.
 The model's weights do not change (yet) — after each of your messages a second small prompt
 (`sofia/memory.py`) works out what to keep, saves it to `~/.local/share/sofia/memory.json`, and
@@ -254,7 +291,9 @@ python3 -m sofia.log export train.jsonl  # chat-format examples: corrections app
 python3 -m unittest discover tests               # language, clean-up, memory + log tests
 ```
 
-Measured on this laptop (4096-token context): ~43–48 tok/s, 100% GPU. The source model also loads a
+Measured on this laptop: ~43–48 tok/s, 100% GPU. The context is 8192 tokens: this model keeps a KV
+cache in only a few of its layers, so that costs ~0.14 GB more VRAM than 4096, and her prompt with
+persona, examples and tools is already ~2.7k. The source model also loads a
 vision projector Sofia never uses, so `scripts/sofia.sh` builds `sofia-base` from the same weights
 without it (~2.9 GB instead of ~3.8 GB in VRAM) and `sofia` on top of that. The memory prompts run
 on `sofia-base`, which Ollama serves from the same loaded copy.
@@ -272,6 +311,7 @@ understand Hinglish). Ruled out on size without testing: Dolphin 3 8B (4.9 GB do
 ./scripts/sofia.sh voice     # or talk in the terminal: Enter, speak, Enter
 ./scripts/sofia.sh chat      # text only, in the terminal
 ./scripts/sofia.sh test      # unit tests
+./scripts/searxng.sh         # optional: private web search for her lookups (Docker)
 ```
 
 One voice turn runs the whole affective loop:

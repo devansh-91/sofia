@@ -135,6 +135,7 @@ async function show(data) {
   if (data.command !== undefined) return add("note", data.command);
   if (data.error) return add("note", data.error);
   add("her", data.answer);
+  for (const item of data.looked || []) add("learned", "dekha: " + item);
   for (const item of data.learned || []) add("learned", "yaad rakha: " + item);
   if (data.audio && speak.checked) {
     const audio = await fetch("/audio/" + data.audio, { headers: { "X-Sofia-Key": key } });

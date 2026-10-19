@@ -19,6 +19,9 @@ SOURCE_MODEL="${SOFIA_SOURCE_MODEL:-hf.co/HauhauCS/Qwen3.5-4B-Uncensored-HauhauC
 # The source model without its vision projector, which Sofia never uses: ~0.9 GB of VRAM
 # more for her voice. The sofia model is built FROM it (models/Sofia.Modelfile).
 BASE_MODEL=sofia-base
+# Her context in tokens, as in models/Sofia.Modelfile. 8192 costs only ~0.14 GB more VRAM than 4096
+# (most of the model's layers keep no KV cache) and leaves room for what she looks up.
+CONTEXT=8192
 VOICE_DIR="${SOFIA_VOICE_DIR:-$HOME/.local/share/sofia/voices}"
 # Kokoro's model and voice pack, with the sizes and SHA-256 sums they were first fetched with.
 KOKORO_URL=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
@@ -49,7 +52,8 @@ die()  {
 python() { if [ -x .venv/bin/python ]; then .venv/bin/python "$@"; else python3 "$@"; fi; }
 
 ensure_base() {
-  ollama list | grep -q "^$BASE_MODEL:" && return
+  # An older sofia-base had a 4096-token context; rebuild it with the one models/Sofia.Modelfile uses.
+  ollama list | grep -q "^$BASE_MODEL:" && ollama show --parameters "$BASE_MODEL" | grep -qE "num_ctx +$CONTEXT\b" && return
   ollama list | grep -qF "$SOURCE_MODEL" || { log "Downloading the base model (3.4 GB)..."; ollama pull "$SOURCE_MODEL"; }
   # Its Modelfile has two FROM lines: the language model first, then the vision projector.
   local weights
@@ -57,7 +61,7 @@ ensure_base() {
   log "Building $BASE_MODEL (the model without its vision projector)..."
   # num_ctx matches models/Sofia.Modelfile, so Ollama runs both on one loaded copy.
   curl -fsS "$OLLAMA_URL/api/create" -o /dev/null -d "{\"model\": \"$BASE_MODEL\", \"stream\": false,
-    \"files\": {\"model.gguf\": \"sha256:${weights##*sha256-}\"}, \"parameters\": {\"num_ctx\": 4096}}" \
+    \"files\": {\"model.gguf\": \"sha256:${weights##*sha256-}\"}, \"parameters\": {\"num_ctx\": $CONTEXT}}" \
     || die "Could not build $BASE_MODEL"
   ! ollama show "$BASE_MODEL" | grep -qw vision || die "$BASE_MODEL still has the vision projector"
 }

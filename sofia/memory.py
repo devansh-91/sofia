@@ -29,7 +29,7 @@ EXAMPLES = "examples"  # {"user", "sofia", "language" of her reply}: replies the
 KINDS = (FACTS, BEHAVIOUR, TAUGHT, PREFERENCES, EXAMPLES)
 MOODS = "moods"  # {"time", "mood", "language"} per user message; `habits` summarises them
 # Facts, behaviour, taught items and preferences go into every prompt, so keep them well
-# inside the 4096-token context. Only a few matching examples are used per reply.
+# inside the 8192-token context, which lookups share. Only a few matching examples are used per reply.
 LIMITS = {FACTS: 40, BEHAVIOUR: 12, TAUGHT: 20, PREFERENCES: 15, EXAMPLES: 40, MOODS: 300}
 # Habits are only reported once there is enough to go on.
 HABIT_MIN_MESSAGES = 10

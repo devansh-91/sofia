@@ -93,7 +93,7 @@ class Sofia:
             if result is not None:
                 return {"command": result}
             answer, learned = self.session.say(text, sounds)
-            return {"answer": answer, "learned": learned, "mood": self.session.mood, "audio": self._spoken(answer)}
+            return {"answer": answer, "learned": learned, "looked": self.session.looked, "mood": self.session.mood, "audio": self._spoken(answer)}
 
     def voice(self, upload: Path, device: str = "laptop") -> dict:
         from sofia import audio

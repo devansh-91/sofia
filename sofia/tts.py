@@ -108,17 +108,24 @@ class Turbo:
             except (BrokenPipeError, OSError):
                 reply = None
         if reply is None:
-            _turbo_stopped()
+            try:
+                code = self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:  # alive but not answering
+                self.process.kill()
+                code = None
+            _turbo_stopped(code)
             return False
         if "error" in reply:
-            print(f"(Kokoro said that one: the laughing voice failed with {reply['error']})")
+            print(f"(Kokoro said that one: the laughing voice failed with {reply['error']})", flush=True)
         return bool(reply.get("ok"))
 
 
-def _turbo_stopped() -> None:
+def _turbo_stopped(code: int | None) -> None:
     global _turbo
     _turbo = None
-    print(f"(The laughing voice stopped — Sofia speaks with Kokoro now. Details: {TURBO_LOG})")
+    # SIGKILL with no traceback in the log is the kernel's OOM killer: loading Turbo briefly needs ~3 GB of RAM.
+    why = "it ran out of RAM (close something and restart Sofia)" if code == -9 else f"details: {TURBO_LOG}"
+    print(f"(The laughing voice stopped, {why}. Sofia speaks with Kokoro now.)", flush=True)
 
 
 def _kokoro_model():

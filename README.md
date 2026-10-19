@@ -274,6 +274,12 @@ The 7B model has habits the code works around: it writes tool calls as JSON text
 says "I've proposed it" without proposing (sent back once to do it), and retells a command's output
 from memory (her answer shows the real output instead).
 
+**Your documents** (`sofia/docs.py`): notes, PDFs, Word files and code in `~/sofia-docs` (or added on
+the settings page) are cut into passages with an embedding each, from nomic-embed-text on the CPU so
+the GPU stays with her model and voice. Her `search_docs` tool finds the passages closest in meaning
+to a question, and a question about notes or documents tells her to search them first. The index
+follows the folder: new and changed files are read again, deleted ones dropped.
+
 **Feelings, relationships, a crisis** (`sofia/care.py`): when a message touches mental health,
 relationships or emotional intelligence, a note with a counsellor's tools rides on it: hear the
 feeling first, then one tool that fits (slow breathing, grounding, checking the worst thought,
@@ -386,10 +392,22 @@ reply → Chatterbox-Turbo in the style for your mood, sounds included (or Kokor
 - **Timing:** her reply is spoken in pieces cut at sentence ends: the first plays while the rest
   render, and what she learns from your message is worked out while she talks. In a call she starts
   ~2.5 s after you stop talking.
+- **Streaming:** her answer is spoken while it is written. Each sentence goes to her voice as soon as
+  the model finishes it (cleaned, with sounds fitted to your mood), unless the answer needs checking
+  first: one held to looking something up, or one after a lookup, whose numbers are checked against
+  what was found. A first sentence in Hinglish stops the stream and the answer is made the usual way.
 - **Call mode:** the green phone button. Talk hands-free: she notices when you stop, answers, and
   listens again; talk over her and she stops. A "hmm" or "okay, sir" in her voice fills a wait of
-  more than ~1 s (rendered once into `~/.local/share/sofia/voices/fillers`). A mic that stays
+  more than ~1 s (rendered once into `~/.local/share/sofia/voices/fillers`). Go on talking while she
+  is thinking and she drops that answer and answers both parts together. The speech threshold
+  follows the room's noise (the quieter end of the last 3 s, with the browser's automatic gain off),
+  the meter shows it as a mark, and tapping her picture starts and sends by hand. A mic that stays
   silent, like a muted Bluetooth headset, gets a hint on how to unmute it.
+- **Settings** (the gear): her voice, from nine packages (Turbo clones of Kokoro's Heart, Bella,
+  Nicole and Emma, Turbo's own voice, and four light Kokoro voices on the CPU; a new Turbo voice is
+  cloned the first time it is picked, in about a minute); her brain (original or tuned); what she
+  knows about you, to read, add to or forget item by item; your documents; the chat history; and
+  deleting all of it.
 - **Microphone level:** at the default input volume this laptop's mic clips on room noise alone and
   nothing is recognised. `wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.2` fixes it; the voice loop
   warns when a recording is clipped.

@@ -34,6 +34,30 @@ def chat_message(model: str, messages: list[dict], **extra) -> dict:
     return _post("/api/chat", body)["message"]
 
 
+def stream_message(model: str, messages: list[dict], on_text, **extra) -> dict:
+    """chat_message, streamed: `on_text` gets each piece of the reply's text as it is generated.
+    Returns the whole message, tool_calls included."""
+    body = {"model": model, "messages": messages, "stream": True, "think": False, "keep_alive": KEEP_ALIVE, **extra}
+    request = urllib.request.Request(f"{OLLAMA_HOST}/api/chat", json.dumps(body).encode(),
+                                     {"Content-Type": "application/json"})
+    content, calls = [], []
+    with urllib.request.urlopen(request, timeout=300) as response:
+        for line in response:
+            if not line.strip():
+                continue
+            chunk = json.loads(line)
+            if "error" in chunk:
+                raise OSError(chunk["error"])
+            message = chunk.get("message") or {}
+            calls += message.get("tool_calls") or []
+            if message.get("content"):
+                content.append(message["content"])
+                on_text(message["content"])
+            if chunk.get("done"):
+                break
+    return {"role": "assistant", "content": "".join(content), **({"tool_calls": calls} if calls else {})}
+
+
 def chat(model: str, messages: list[dict], **extra) -> str:
     return chat_message(model, messages, **extra)["content"].strip()
 

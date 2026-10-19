@@ -75,10 +75,7 @@ merge() {
   log "Importing it into Ollama as sofia-tuned-base..."
   ollama create sofia-tuned-base -f "$dir/Modelfile"
   # Her persona without the few-shot examples: the tuning replaces them, and the prompt gets shorter.
-  "$PY" -c "import re, sys; text = open('models/Sofia.Modelfile').read()
-text = re.sub(r'^MESSAGE (?:user|assistant) \"\"\".*?\"\"\"\n', '', text, flags=re.S | re.M)
-sys.stdout.write(re.sub(r'^FROM sofia-base$', 'FROM sofia-tuned-base', text, flags=re.M))" >"$dir/Sofia-tuned.Modelfile"
-  grep -q '^FROM sofia-tuned-base$' "$dir/Sofia-tuned.Modelfile" || die "models/Sofia.Modelfile no longer starts FROM sofia-base"
+  python3 scripts/tuned-modelfile.py >"$dir/Sofia-tuned.Modelfile"
   ollama create sofia-tuned -f "$dir/Sofia-tuned.Modelfile"
   rm -rf "$dir"
   log "Built sofia-tuned. Compare: ./scripts/finetune.sh compare"

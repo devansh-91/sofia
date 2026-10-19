@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Callable
 
-from sofia import care, ollama, tools
+from sofia import care, docs, ollama, tools
 from sofia.lang import ENGLISH, HINGLISH, REPLY_INSTRUCTION, detect
 from sofia.log import GOOD, ConversationLog
 from sofia.memory import FACTS, MOODS, NEUTRAL, NONE, Memory
@@ -57,6 +57,9 @@ LOOK_IT_UP = ("[This needs current information: look it up with your tools befor
 # Questions about the user's files, which it otherwise answers with "let me check" and no check.
 FILES = re.compile(r"\b(folders?|files?|downloads|documents|desktop|pictures|photos|pdfs?|resume|cv)\b", re.I)
 LOOK_IN_FILES = "[Look in the user's files with your tools before answering. Never guess.]"
+# Questions about what is in their notes or documents, when they have added some (sofia/docs.py).
+DOCS = re.compile(r"\b(notes?|docs?|documents?|pdfs?|syllabus|assignments?|report|book|chapter|paper|slides)\b", re.I)
+LOOK_IN_DOCS = "[The user keeps documents for you: search them with search_docs first, and answer from what you find.]"
 
 HELP = (
     "Commands: /good (last reply was good), /say <better reply> (teach the right reply), "
@@ -88,6 +91,7 @@ def reply(
     sounds: str = NEUTRAL,
     situation: Situation | None = None,
     looked: list[str] | None = None,
+    stream: "Streamer | None" = None,
 ) -> str:
     """Append the user's turn and Sofia's answer to `history`; return the answer.
 
@@ -107,6 +111,8 @@ def reply(
         notes.append(LOOK_IT_UP)
     if looked is not None and FILES.search(text):
         notes.append(LOOK_IN_FILES)
+    if looked is not None and DOCS.search(text) and docs.files():
+        notes.append(LOOK_IN_DOCS)
     messages = history[:-1] + [_user_turn(text, heard, *notes)]
     if memory:
         learned = []
@@ -114,7 +120,7 @@ def reply(
             learned += [_user_turn(example["user"]), {"role": "assistant", "content": example["sofia"]}]
         newest = _user_turn(text, heard, *notes, memory.preference_note(), CURIOSITY_NOTE if curious else "")
         messages = memory.background(situation.background() if situation else []) + learned + history[:-1] + [newest]
-    answer = _answer(messages, looked, LOOK_IT_UP in notes or LOOK_IN_FILES in notes)
+    answer = _answer(messages, looked, LOOK_IT_UP in notes or LOOK_IN_FILES in notes or LOOK_IN_DOCS in notes, stream)
     history.append({"role": "assistant", "content": answer})
     return answer
 
@@ -125,13 +131,23 @@ def _ungrounded(answer: str, found: str) -> list[str]:
     return [number for number in NUMBER.findall(answer) if number.replace(",", "") not in seen]
 
 
-def _look(messages: list[dict], looked: list[str], must_look: bool = False) -> str:
+def _look(messages: list[dict], looked: list[str], must_look: bool = False, stream: "Streamer | None" = None) -> str:
     """Let her look things up with her tools until she answers. With `must_look` (a question about
     the news, prices or the user's files) she is held to looking first and to the numbers she found."""
     found = []
     for step in range(MAX_LOOKUPS):
-        message = ollama.chat_message(MODEL, messages, tools=tools.SCHEMAS)
+        # Only an answer that needs no checking can be spoken while it is written: not one held to
+        # looking first, nor one after a lookup, whose numbers are checked against what was found.
+        live = stream if stream and step == 0 and not must_look else None
+        if live:
+            message = ollama.stream_message(MODEL, messages, live.feed, tools=tools.SCHEMAS)
+        else:
+            message = ollama.chat_message(MODEL, messages, tools=tools.SCHEMAS)
         calls = message.get("tool_calls") or []
+        if live and not calls:
+            live.finish()
+            if live.pieces:
+                return live.text
         if not calls and must_look and not found and step == 0:
             messages = messages + [message, _user_turn(LOOK_FIRST)]  # she answered without looking
             continue
@@ -163,8 +179,11 @@ def _grounded(answer: str, found: list[str], messages: list[dict], must_look: bo
     return ollama.chat(MODEL, messages + retry)
 
 
-def _answer(messages: list[dict], looked: list[str] | None = None, must_look: bool = False) -> str:
-    answer = _look(messages, looked, must_look) if looked is not None else ollama.chat(MODEL, messages)
+def _answer(messages: list[dict], looked: list[str] | None = None, must_look: bool = False,
+            stream: "Streamer | None" = None) -> str:
+    answer = _look(messages, looked, must_look, stream) if looked is not None else ollama.chat(MODEL, messages)
+    if stream and stream.answered:
+        return answer  # already cleaned and spoken, a piece at a time
     # The model slips into Hinglish now and then, mostly when the user wrote in it.
     # Show it the slip and ask again — a plain retry repeats it.
     for _ in range(2):
@@ -178,6 +197,73 @@ def _answer(messages: list[dict], looked: list[str] | None = None, must_look: bo
     if detect(answer, ENGLISH) == HINGLISH:
         answer = _in_english(answer)
     return polish(answer)
+
+
+_SENTENCE_END = re.compile(r"[.!?…](?=\s)")
+
+
+class Streamer:
+    """Her answer as the model writes it, cut at sentence ends into pieces for her voice, each
+    cleaned as a whole answer is (polish, the helpline's spelling, sounds that fit the mood, at most
+    one sound in all). The first piece is short so she starts talking quickly (sofia/tts.py).
+    If the first piece comes out in Hinglish, nothing is spoken and the answer is made the usual way."""
+
+    def __init__(self, emit: Callable[[str], None], mood: str, crisis: bool):
+        from sofia import tts
+
+        self.emit, self.mood, self.crisis = emit, mood, crisis
+        self.first, self.later = tts.FIRST_PIECE, tts.PIECE
+        self.buffer, self.pieces = "", []
+        self.sounded = self.dead = self.answered = False
+
+    @property
+    def text(self) -> str:
+        return " ".join(self.pieces)
+
+    def feed(self, delta: str) -> None:
+        if self.dead:
+            return
+        self.buffer += delta
+        while not self.dead:
+            target = self.later if self.pieces else self.first
+            cut = next((self._after(m.end()) for m in _SENTENCE_END.finditer(self.buffer) if m.end() >= target), None)
+            if cut is None:
+                return
+            self._out(self.buffer[:cut])
+            self.buffer = self.buffer[cut:]
+
+    def _after(self, end: int) -> int | None:
+        """Where a piece ending at sentence end `end` stops: after a sound tag that follows it (it
+        belongs to that sentence), so None until the next word shows whether one does."""
+        rest = self.buffer[end:]
+        start = len(rest) - len(rest.lstrip())
+        if start == len(rest):
+            return None
+        if rest[start] != "[":
+            return end
+        close = rest.find("]", start)
+        return None if close < 0 else end + close + 1
+
+    def finish(self) -> None:
+        """The model is done: the rest is the last piece. Marks the answer as spoken."""
+        if not self.dead and self.buffer.strip():
+            self._out(self.buffer)
+        self.buffer = ""
+        self.answered = bool(self.pieces)
+
+    def _out(self, raw: str) -> None:
+        text = care.spelled(polish(raw))
+        if not self.pieces and detect(text, ENGLISH) == HINGLISH:
+            self.dead = True
+            return
+        if self.crisis or self.sounded:
+            text = without_sounds(text)
+        else:
+            text = fit_sounds(text, self.mood)
+            self.sounded = text != without_sounds(text)
+        if without_sounds(text):  # a sound alone is no piece
+            self.pieces.append(text)
+            self.emit(text)
 
 
 class Session:
@@ -211,7 +297,7 @@ class Session:
         self.answer(text, sounds)
         return self.remember()
 
-    def answer(self, text: str, sounds: str = NEUTRAL) -> str:
+    def answer(self, text: str, sounds: str = NEUTRAL, emit: Callable[[str], None] | None = None) -> str:
         """Her answer to `text`, before she learns from it, so she can start speaking it; call
         `remember` before the next message. Its sounds fit the user's mood as last known."""
         self.language = detect(text, previous=self.language)
@@ -220,11 +306,22 @@ class Session:
             len(self.memory.items[FACTS]) < CURIOUS_BELOW_FACTS and self.turns % CURIOUS_EVERY_TURNS == 2
         )
         self.looked = []
-        answer = reply(self.history, text, self.memory, curious, sounds, self.situation, self.looked)
         self.crisis = care.notes(text)[1]
-        # No laugh or sigh in an answer about self-harm, whatever the model wrote.
-        answer = care.spelled(answer)
-        answer = self.history[-1]["content"] = without_sounds(answer) if self.crisis else fit_sounds(answer, self.mood)
+        # With `emit`, each piece of the answer goes to her voice as soon as it is written.
+        stream = Streamer(emit, self.mood, self.crisis) if emit else None
+        answer = reply(self.history, text, self.memory, curious, sounds, self.situation, self.looked, stream)
+        if stream and stream.answered:
+            self.history[-1]["content"] = answer
+        else:
+            # No laugh or sigh in an answer about self-harm, whatever the model wrote.
+            answer = care.spelled(answer)
+            answer = without_sounds(answer) if self.crisis else fit_sounds(answer, self.mood)
+            if stream and stream.pieces:  # it talked before looking something up: the answer follows
+                stream.buffer = ""
+                stream.feed(" " + answer)
+                stream.finish()
+                answer = stream.text
+            self.history[-1]["content"] = answer
         self.unremembered = (text, sounds)
         return answer
 
@@ -247,6 +344,15 @@ class Session:
         if len(self.unreflected) >= REFLECT_EVERY_TURNS:
             learned += self.reflect()
         return answer, learned
+
+    def retract(self) -> str | None:
+        """Take back the latest exchange: the user went on talking before hearing her answer, so
+        both parts get one answer. Returns what they said in it (None when there is none)."""
+        if not self.last or len(self.history) < 2 or self.history[-1]["role"] != "assistant":
+            return None
+        said, self.last = self.last["user"], None
+        del self.history[-2:]
+        return said
 
     def greet(self) -> str | None:
         """Her opening line when the user opens the app, fitted to the moment; None when they

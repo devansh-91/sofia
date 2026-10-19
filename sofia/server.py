@@ -12,6 +12,7 @@ model with your personal memory behind it, so it is never served openly.
 import argparse
 import json
 import os
+import queue
 import secrets
 import signal
 import tempfile
@@ -20,10 +21,11 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import urllib.parse
 from urllib.parse import parse_qs, urlparse
 
-from sofia import agent, care, ollama, work
-from sofia.chat import MODEL, Session
+from sofia import agent, care, chat, docs, ollama, settings, work
+from sofia.chat import Session
 from sofia.log import ConversationLog
 from sofia.memory import NEUTRAL, Memory
 from sofia.work import AGENT, ENTER, LEAVE, WORK_MODEL, Work
@@ -51,7 +53,9 @@ class Sofia:
     """The one conversation this server holds, plus speech when available."""
 
     def __init__(self, speech: bool):
-        ollama.preload(MODEL)  # alongside the speech models, which take longer
+        self.brain = self._brain(settings.load()["brain"])
+        docs.refresh_soon()  # files added to ~/sofia-docs while she was off
+        ollama.preload(chat.MODEL)  # alongside the speech models, which take longer
         self.session = Session(Memory(), ConversationLog())
         self.lock = threading.Lock()  # one reply at a time: a single model, a single conversation
         self.learned: list[str] = []  # learned from the latest message, after its answer went out
@@ -61,11 +65,14 @@ class Sofia:
         self.speech = False
         self.fillers: dict[str, list[Path]] = {}  # style -> her "hmm"s for calls, once rendered
         self.work: Work | None = None  # set in work mode ("kaam mode")
+        self.switching_voice = False
         if speech:
             try:
                 from sofia import emotion, stt, tts
 
-                stt._load(), emotion._load(), tts._load()
+                stt._load(), emotion._load()
+                voice = settings.load()["voice"]
+                tts.use(voice) if voice in dict(tts.PACKAGES) else tts._load()
                 self.speech = True
                 threading.Thread(target=self._load_fillers, daemon=True).start()
             except (ImportError, FileNotFoundError) as error:
@@ -88,6 +95,12 @@ class Sofia:
 
         return tts.STYLES.get(self.session.mood, tts.STYLES["neutral"])[0] if self.speech else None
 
+    def _voice(self, wait: bool = True) -> "Voice":
+        """A reply's spoken pieces, rendered one after another in the background as they are added,
+        possibly while the model is still writing the rest."""
+        self.turn += 1
+        return Voice(self, self.turn, self.session.mood, wait)
+
     def _spoken(self, answer: str, wait: bool = True) -> list[str] | None:
         """Render `answer` to audio, a piece at a time in the background; return the names the
         browser fetches the pieces by, in order. Fetching one waits until it is rendered."""
@@ -95,30 +108,11 @@ class Sofia:
             return None
         from sofia import tts
 
-        self.turn += 1
-        turn, mood = self.turn, self.session.mood
-        pieces = tts.pieces(answer)
-        names = [f"{secrets.token_hex(8)}.wav" for _ in pieces]
-        for name in names:
-            self.replies[name] = threading.Event()
-        for old in list(self.replies)[:-KEPT_REPLIES]:
-            (self.audio_dir / old).unlink(missing_ok=True)
-            self.replies.pop(old).set()
-
-        def render() -> None:
-            for name, piece in zip(names, pieces):
-                try:
-                    if turn == self.turn:  # else the user has moved on: skip, the fetch gets a 404
-                        wav, _ = tts.speak(piece, mood, wait)
-                        wav.replace(self.audio_dir / name)
-                finally:
-                    if name in self.replies:
-                        self.replies[name].set()
-                    else:  # dropped as old while it rendered
-                        (self.audio_dir / name).unlink(missing_ok=True)
-
-        threading.Thread(target=render, daemon=True).start()
-        return names
+        voice = self._voice(wait)
+        for piece in tts.pieces(answer):
+            voice.add(piece)
+        voice.end()
+        return voice.names
 
     def audio(self, name: str) -> Path | None:
         """A spoken piece, once rendered; None for anything else."""
@@ -133,6 +127,97 @@ class Sofia:
         self.turn += 1
         return {}
 
+    # --- the settings page ---------------------------------------------------------------------
+
+    @staticmethod
+    def _has_model(name: str) -> bool:
+        try:
+            ollama._post("/api/show", {"model": name}, timeout=10)
+            return True
+        except OSError:
+            return False
+
+    def _brain(self, name: str) -> str:
+        """Use brain `name` if its model is built, else the original; return the one in use."""
+        name = name if name in settings.BRAINS and self._has_model(settings.BRAINS[name][0]) else "original"
+        settings.use_brain(name)
+        return name
+
+    def settings(self) -> dict:
+        from sofia import tts
+
+        return {
+            "voice": tts.package() if self.speech else None,
+            "voices": [{"key": key, "name": name} for key, name in tts.PACKAGES] if self.speech else [],
+            "switchingVoice": self.switching_voice,
+            "brain": self.brain,
+            "brains": [{"key": key, "name": label, "available": self._has_model(model)}
+                       for key, (model, _, label) in settings.BRAINS.items()],
+            "memory": self.session.memory.numbered(),
+            "habits": self.session.memory.habits(),
+        }
+
+    def change(self, voice: str | None = None, brain: str | None = None) -> dict:
+        from sofia import tts
+
+        with self.lock:
+            if brain and brain != self.brain and not self.work:
+                ollama.unload(chat.MODEL)
+                self.brain = self._brain(brain)
+                settings.save(brain=self.brain)
+                ollama.preload(chat.MODEL)
+            if voice and self.speech and voice != tts.package() and not self.switching_voice:
+                if voice not in dict(tts.PACKAGES):
+                    return {"error": f"no voice called {voice}"}
+                if self.work:  # the laughing voice is off in work mode: the bigger model has the GPU
+                    return {**self.settings(), "error": "Switch voices after leaving work mode."}
+                settings.save(voice=voice)
+                self.switching_voice = True
+                threading.Thread(target=self._switch_voice, args=(voice,), daemon=True).start()
+        return self.settings()
+
+    def _switch_voice(self, voice: str) -> None:
+        """New voices take a minute or so: Turbo restarts, cloning the voice first if it is new."""
+        from sofia import tts
+
+        try:
+            tts.use(voice)
+            self._load_fillers()
+        except Exception as error:
+            print(f"(Couldn't switch her voice: {type(error).__name__}: {error})", flush=True)
+        finally:
+            self.switching_voice = False
+
+    def memory(self, forget: int | str | None = None, add: str = "") -> dict:
+        from sofia.memory import FACTS
+
+        with self.lock:
+            if forget == "all":
+                self.session.memory.clear()
+            elif isinstance(forget, int):
+                self.session.memory.forget(forget)
+            if add.strip():
+                self.session.memory.add(FACTS, add.strip())
+                self.session.memory.save()
+        return self.settings()
+
+    def history(self) -> list[dict]:
+        return self.session.log.history()
+
+    def forget_history(self) -> dict:
+        """Delete the conversation log and what she holds of this conversation."""
+        with self.lock:
+            self.session.log.clear()
+            self.session.history.clear()
+            self.session.last, self.session.unreflected = None, []
+            self.session.situation.last_turns = []
+        return {"ok": True}
+
+    def forget_everything(self) -> dict:
+        """Every bit of the user's data: what she knows, their moods, the conversations."""
+        self.memory(forget="all")
+        return self.forget_history()
+
     @property
     def mode(self) -> str:
         return "work" if self.work else "normal"
@@ -143,7 +228,7 @@ class Sofia:
         if to_work == bool(self.work):
             line = "We're already in work mode, sir." if self.work else "I'm right here, sir, no work mode on."
         elif to_work:
-            ollama.unload(MODEL)
+            ollama.unload(chat.MODEL)
             if self.speech:
                 from sofia import tts
 
@@ -157,7 +242,7 @@ class Sofia:
             ollama.unload(WORK_MODEL)
             ollama.unload(agent.MODEL)
             self.work = None
-            ollama.preload(MODEL)
+            ollama.preload(chat.MODEL)
             if self.speech:
                 from sofia import tts
 
@@ -220,10 +305,22 @@ class Sofia:
             result = self.session.command(text)
             if result is not None:
                 return {"command": result}
-            answer = self.session.answer(text, sounds)
+            # Her voice starts on the first sentence while the model writes the rest.
+            voice = self._voice() if self.speech else None
+            try:
+                answer = self.session.answer(text, sounds, emit=voice.add if voice else None)
+                if voice and not voice.names:  # nothing was streamed (a lookup, or a slip into Hinglish)
+                    from sofia import tts
+
+                    for piece in tts.pieces(answer):
+                        voice.add(piece)
+            finally:
+                if voice:
+                    voice.end()
             learned, self.learned = self.learned, []
-            reply = {"answer": answer, "learned": learned, "looked": self.session.looked, "audio": self._spoken(answer),
-                     "style": self.style(), "mode": "normal", **({"care": care.HELPLINES} if self.session.crisis else {})}
+            reply = {"answer": answer, "learned": learned, "looked": self.session.looked,
+                     "audio": voice.names if voice else None, "style": self.style(), "mode": "normal",
+                     **({"care": care.HELPLINES} if self.session.crisis else {})}
             first = self.replies.get(reply["audio"][0]) if reply["audio"] else None
             threading.Thread(target=self._remember, args=(first,), daemon=True).start()
             learning = True
@@ -245,7 +342,9 @@ class Sofia:
         finally:
             self.lock.release()
 
-    def voice(self, upload: Path, device: str = "laptop") -> dict:
+    def voice(self, upload: Path, device: str = "laptop", amend: bool = False) -> dict:
+        """What the user said and her answer. With `amend` they went on talking while she was
+        thinking: her answer to the first part is dropped and both parts get one answer."""
         from sofia import audio
         from sofia.voice import hear
 
@@ -258,10 +357,53 @@ class Sofia:
         if not text:
             return {"heard": ""}
         heard = time.monotonic()
-        reply = self.chat(text, sounds, device)
+        earlier = None
+        if amend:
+            with self.lock:
+                earlier = self.session.retract()
+        reply = self.chat(f"{earlier} {text}" if earlier else text, sounds, device)
         # How long the user waits in a call, without what was said: the log stays private.
         print(f"(voice turn: heard in {heard - started:.1f}s, answered in {time.monotonic() - heard:.1f}s)", flush=True)
         return {"heard": text, "sounds": sounds, **reply}
+
+
+class Voice:
+    """One reply's audio: pieces are rendered in order by one thread as they are added. A newer
+    reply (or the user talking over her) stops the rest; their fetches get a 404."""
+
+    def __init__(self, sofia: "Sofia", turn: int, mood: str, wait: bool):
+        self.sofia, self.turn, self.mood, self.wait = sofia, turn, mood, wait
+        self.names: list[str] = []
+        self.queue: queue.Queue = queue.Queue()
+        threading.Thread(target=self._render, daemon=True).start()
+
+    def add(self, piece: str) -> str:
+        name = f"{secrets.token_hex(8)}.wav"
+        self.sofia.replies[name] = threading.Event()
+        for old in list(self.sofia.replies)[:-KEPT_REPLIES]:
+            (self.sofia.audio_dir / old).unlink(missing_ok=True)
+            self.sofia.replies.pop(old).set()
+        self.names.append(name)
+        self.queue.put((name, piece))
+        return name
+
+    def end(self) -> None:
+        self.queue.put(None)
+
+    def _render(self) -> None:
+        from sofia import tts
+
+        while (item := self.queue.get()) is not None:
+            name, piece = item
+            try:
+                if self.turn == self.sofia.turn:
+                    wav, _ = tts.speak(piece, self.mood, self.wait)
+                    wav.replace(self.sofia.audio_dir / name)
+            finally:
+                if name in self.sofia.replies:
+                    self.sofia.replies[name].set()
+                else:  # dropped as old while it rendered
+                    (self.sofia.audio_dir / name).unlink(missing_ok=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -307,6 +449,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.OK, ICON.read_bytes(), "image/svg+xml")
         elif not self._authorised():
             self._json({"error": "wrong or missing key"}, HTTPStatus.FORBIDDEN)
+        elif path == "/api/settings":
+            self._json(self.sofia.settings())
+        elif path == "/api/docs":
+            self._json({"folder": str(docs.FOLDER), "docs": docs.listing()})
+        elif path == "/api/history":
+            self._json({"turns": self.sofia.history()})
         elif path == "/api/status":
             fillers = {style: [path.name for path in paths] for style, paths in self.sofia.fillers.items()}
             self._json({"speech": self.sofia.speech, "fillers": fillers, "mode": self.sofia.mode})
@@ -342,6 +490,25 @@ class Handler(BaseHTTPRequestHandler):
                 card = request.get("id", 0)
                 card = card if isinstance(card, str) and card.startswith("agent-") else int(card)
                 self._json(self.sofia.decide(card, request.get("allow") is True))
+            elif path == "/api/settings":
+                request = json.loads(body)
+                self._json(self.sofia.change(voice=request.get("voice"), brain=request.get("brain")))
+            elif path == "/api/memory":
+                request = json.loads(body)
+                forget = request.get("forget")
+                forget = forget if forget == "all" else int(forget) if forget is not None else None
+                self._json(self.sofia.memory(forget=forget, add=str(request.get("add", ""))))
+            elif path == "/api/docs/upload":
+                name = urllib.parse.unquote(self.headers.get("X-File-Name", ""))
+                docs.add(name, body)
+                self._json({"folder": str(docs.FOLDER), "docs": docs.listing()})
+            elif path == "/api/docs/remove":
+                docs.remove(str(json.loads(body).get("name", "")))
+                self._json({"folder": str(docs.FOLDER), "docs": docs.listing()})
+            elif path == "/api/history/clear":
+                self._json(self.sofia.forget_history())
+            elif path == "/api/data/clear":
+                self._json(self.sofia.forget_everything())
             elif path == "/api/hush":
                 self._json(self.sofia.hush())
             elif path == "/api/hello":
@@ -350,7 +517,8 @@ class Handler(BaseHTTPRequestHandler):
                 upload = self.sofia.audio_dir / f"upload-{secrets.token_hex(8)}"
                 upload.write_bytes(body)
                 try:
-                    self._json(self.sofia.voice(upload, self._device()))
+                    amend = parse_qs(urlparse(self.path).query).get("amend", [""])[0] == "1"
+                    self._json(self.sofia.voice(upload, self._device(), amend))
                 finally:
                     upload.unlink(missing_ok=True)
             else:
@@ -383,7 +551,7 @@ def main() -> None:
         if Handler.sofia.work and Handler.sofia.work.agent:
             Handler.sofia.work.agent.stop()
             ollama.unload(agent.MODEL)
-        ollama.unload(WORK_MODEL if Handler.sofia.work else MODEL)
+        ollama.unload(WORK_MODEL if Handler.sofia.work else chat.MODEL)
 
 
 if __name__ == "__main__":

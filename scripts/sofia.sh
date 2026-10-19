@@ -79,6 +79,13 @@ ensure_model() {
   if ! ollama list | grep -q '^sofia:' || ollama show sofia | grep -qw vision || [ "$(cat "$stamp" 2>/dev/null)" != "$sum" ]; then
     log "Building the sofia model..."
     ollama create sofia -f models/Sofia.Modelfile
+    # The tuned brain (scripts/finetune.sh) carries the same persona, without the few-shot examples.
+    if ollama list | grep -q '^sofia-tuned-base:'; then
+      local tuned; tuned="$(mktemp)"
+      python3 scripts/tuned-modelfile.py >"$tuned"
+      ollama create sofia-tuned -f "$tuned"
+      rm -f "$tuned"
+    fi
     mkdir -p "$STATE_DIR"
     echo "$sum" >"$stamp"
   fi

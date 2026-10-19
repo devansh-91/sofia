@@ -74,7 +74,8 @@ class WebTest(unittest.TestCase):
     def test_only_looking_tools_are_offered(self):
         offered = {schema["function"]["name"] for schema in tools.SCHEMAS}
         self.assertEqual(offered, set(tools.FUNCTIONS))
-        self.assertEqual(offered, {"list_files", "find_files", "read_file", "web_search", "news", "weather", "read_webpage"})
+        self.assertEqual(offered, {"list_files", "find_files", "read_file", "search_docs", "web_search", "news", "weather",
+                                   "read_webpage"})
 
 
 if __name__ == "__main__":

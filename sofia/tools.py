@@ -286,6 +286,18 @@ def read_webpage(url: str) -> str:
     return _short(_page_text(url))
 
 
+def search_docs(query: str) -> str:
+    """Passages from the user's documents (~/sofia-docs) closest in meaning to `query`."""
+    from sofia import docs
+
+    if not docs.files():
+        return "The user has no documents in ~/sofia-docs yet (they can add some on the settings page)."
+    found = docs.search(query)
+    if not found:
+        return "Nothing in the user's documents matches that."
+    return "\n\n".join(f"[{shown(Path(hit['file']))}] {hit['text'][:600]}" for hit in found)
+
+
 # --- what the model sees -------------------------------------------------------------------------
 
 def _tool(function, description: str, **parameters: str) -> dict:
@@ -296,12 +308,15 @@ def _tool(function, description: str, **parameters: str) -> dict:
         "parameters": {"type": "object", "properties": properties, "required": required}}}
 
 
-FUNCTIONS = {f.__name__: f for f in (list_files, find_files, read_file, web_search, news, weather, read_webpage)}
+FUNCTIONS = {f.__name__: f for f in (list_files, find_files, read_file, search_docs, web_search, news, weather,
+                                      read_webpage)}
 SCHEMAS = [
     _tool(list_files, "List what is in one of the user's folders.", **{"path?": "folder, e.g. Downloads or ~/Documents"}),
     _tool(find_files, "Find the user's files by name.",
           name="part of the name, or a pattern like *.pdf", **{"folder?": "where to look, default the home folder"}),
     _tool(read_file, "Read one of the user's text files.", path="the file"),
+    _tool(search_docs, "Search the user's own documents (notes, PDFs, Word files they added) by meaning.",
+          query="what to look for, in a few words"),
     _tool(web_search, "Search the web for current information: news, scores, prices, facts.", query="what to search for"),
     _tool(news, "The newest news headlines, overall or about a topic: also for match scores and results.",
           **{"topic?": "e.g. India cricket, gold price; leave out for top headlines"}),

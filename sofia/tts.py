@@ -72,9 +72,10 @@ _kokoro = None
 _turbo = None
 
 
-def turbo_voice(voice: str = VOICE, style: str = "warm") -> Path:
+def turbo_voice(voice: str | None = None, style: str = "warm") -> Path:
     """Where Turbo's clone of a Kokoro voice in one style is kept. Its name carries the style's
     settings, so changing them makes a new clone instead of reusing the old one."""
+    voice = voice or VOICE
     if style == "warm":
         return VOICE_DIR / f"turbo-{voice}.pt"
     settings = hashlib.sha1(repr(TURBO_STYLES[style]).encode()).hexdigest()[:6]
@@ -173,9 +174,10 @@ def _load():
     return _kokoro_model()
 
 
-def kokoro(text: str, path: Path, speed: float = 1.0, voice: str = KOKORO_VOICE) -> None:
+def kokoro(text: str, path: Path, speed: float = 1.0, voice: str | None = None) -> None:
     import soundfile
 
+    voice = voice or KOKORO_VOICE
     lang = "en-gb" if voice.startswith("b") else "en-us"
     samples, rate = _kokoro_model().create(without_sounds(text), voice=voice, speed=speed, lang=lang)
     soundfile.write(str(path), samples, rate)
@@ -216,6 +218,41 @@ def speak(text: str, mood: str = "neutral", wait: bool = True) -> tuple[Path, st
     return path, style
 
 
+# The voices she can speak in, for the settings page: (key, name). "turbo:<kokoro voice>" is Turbo
+# speaking a clone of that Kokoro voice (laughs, sighs, a style per mood; ~1 min to clone the first
+# time it is picked); "turbo:builtin" is Turbo's own voice; "kokoro:<voice>" is Kokoro alone, on
+# the CPU: lighter and quicker, without the sounds.
+PACKAGES = [
+    ("turbo:af_heart", "Heart, with laughs (her own voice)"),
+    ("turbo:af_bella", "Bella, with laughs"),
+    ("turbo:af_nicole", "Nicole, with laughs (soft)"),
+    ("turbo:bf_emma", "Emma, with laughs (British)"),
+    ("turbo:builtin", "Turbo's own voice, with laughs"),
+    ("kokoro:af_heart", "Heart, light (CPU, no laughs)"),
+    ("kokoro:af_sky", "Sky, light"),
+    ("kokoro:af_sarah", "Sarah, light"),
+    ("kokoro:bf_isabella", "Isabella, light (British)"),
+]
+
+
+def package() -> str:
+    """The voice she speaks in now, as a PACKAGES key."""
+    return f"{ENGINE}:{'builtin' if VOICE == 'turbo' else VOICE}"
+
+
+def use(key: str) -> None:
+    """Speak in another voice from PACKAGES: Turbo restarts with that voice (cloning it first if
+    it is new, on the CPU), and Kokoro speaks until it is ready."""
+    global ENGINE, VOICE, KOKORO_VOICE
+    if key not in dict(PACKAGES):
+        raise ValueError(f"no voice called {key}")
+    engine, name = key.split(":", 1)
+    stop_turbo()
+    ENGINE, VOICE = engine, "turbo" if name == "builtin" else name
+    KOKORO_VOICE = "af_heart" if VOICE == "turbo" else VOICE
+    _load()
+
+
 def stop_turbo() -> None:
     """Free Turbo's VRAM (for work mode's bigger model); Kokoro speaks until `_load` starts it again."""
     global _turbo
@@ -253,9 +290,10 @@ def fillers() -> dict[str, list[Path]]:
     return found
 
 
-def clone(voice: str = VOICE) -> list[Path]:
+def clone(voice: str | None = None) -> list[Path]:
     """Make Turbo's copies of a Kokoro voice, one per style (once; ./scripts/sofia.sh setup does it).
     Returns the new ones: none when they exist, for Turbo's own voice, or without Turbo."""
+    voice = voice or VOICE
     if voice == "turbo" or not TURBO_PYTHON.exists():
         return []
     missing = {style: turbo_voice(voice, style) for style in TURBO_STYLES}

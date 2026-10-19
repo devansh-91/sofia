@@ -42,6 +42,21 @@ class ConversationLog:
                       "language": language, "user": user, "sofia": sofia})
         return turn_id
 
+    def history(self, limit: int = 200) -> list[dict]:
+        """The latest exchanges, newest first, for the history on the settings page."""
+        if not self.path.exists():
+            return []
+        found = []
+        for line in self.path.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            if record.get("type") == "turn":
+                found.append({"time": record["time"], "user": record["user"], "sofia": record["sofia"]})
+        return found[::-1][:limit]
+
+    def clear(self) -> None:
+        """Forget every exchange (the user's choice on the settings page)."""
+        self.path.unlink(missing_ok=True)
+
     def last_turns(self, count: int) -> list[dict]:
         """The latest `count` exchanges in the log, oldest first."""
         if not self.path.exists():
